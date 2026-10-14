@@ -6,7 +6,7 @@ export class SheetsSync {
     this.url=url;this.nonce=crypto.randomUUID();this.pending=new Map();
     this.ready=new Promise((resolve,reject)=>{this.resolveReady=resolve;this.timer=setTimeout(()=>reject(new Error('Google Sheets did not connect. Check the deployment is available to Anyone.')),25000);});
     this.listener=e=>{
-      if(!/^https:\/\/[\w-]+\.script\.googleusercontent\.com$/.test(e.origin))return;
+      if(!/^https:\/\/[\w-]+(?:\.|-)script\.googleusercontent\.com$/.test(e.origin))return;
       const d=e.data;if(!d||d.channel!=='flatflow'||d.nonce!==this.nonce)return;
       if(d.type==='ready'&&!this.target){this.target=e.source;this.origin=e.origin;clearTimeout(this.timer);this.resolveReady();return;}
       if(e.source!==this.target)return;
