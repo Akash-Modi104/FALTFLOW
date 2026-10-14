@@ -5,7 +5,7 @@ A mobile-friendly shared-flat chore app hosted on GitHub Pages. A private Google
 ## Features
 
 - Add flatmates, avatar colours, away dates and breaks
-- Daily, weekly, monthly and custom schedules
+- Daily, weekly, monthly and custom schedules, with automatic period-based rotation
 - Custom participants and rotation order for each chore
 - Complete, pass a turn with a reason, postpone, reassign, pause and remove
 - Schedule previews, activity, and personal chore filters
