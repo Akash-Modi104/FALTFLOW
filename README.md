@@ -1,54 +1,32 @@
 # Flatflow
 
-A mobile-friendly shared-flat chore app hosted on GitHub Pages. A private Google Sheet and Google Apps Script provide shared storage. No ChatGPT subscription or account is used at runtime.
+Shared-flat chore rotation PWA, hosted on GitHub Pages with a private Google Sheet backend. No ChatGPT subscription or OpenAI API is needed to run it.
 
-## Features
+## Using your home
 
-- Add flatmates, avatar colours, away dates and breaks
-- Daily, weekly, monthly and custom schedules, with automatic period-based rotation
-- Custom participants and rotation order for each chore
-- Complete, pass a turn with a reason, postpone, reassign, pause and remove
-- Schedule previews, activity, and personal chore filters
-- Invitations and automatic refresh every 30 seconds while online
-- Conflict protection so simultaneous edits cannot silently overwrite each other
-- JSON backup/restore and a recoverable local draft after conflicts
-- Installable PWA on iPhone, Android and desktop, with cached offline viewing
-- Browser reminders while open, calendar exports and verified opt-in daily emails
+Create one shared household and send its invitation from Settings → Invite flatmates. Each person chooses their own name under Settings → I am on their device. My chores filters their assignments. This is household-link access, not individual authenticated accounts: anyone holding the invitation can manage the home.
 
-## Local development
+Add chores with daily, weekly, monthly or custom intervals, select participants and rotation order. Complete, pass, postpone or reassign a turn. Set away dates or breaks for flatmates. Delete a flatmate from their edit screen after reassigning any chores where they are the only participant. Updates sync online; cached chores can be viewed offline. Export/import JSON backups in Settings.
 
-Node 22 or newer. No dependencies are required.
+## Phone notifications
+
+Use Settings → Enable phone notifications after choosing your name. On iPhone/iPad (iOS 16.4+), first add Flatflow to the Home Screen from Safari, open that installed app, and allow notifications. On Android use Chrome. Every device subscribes separately. A daily Apps Script trigger sends a push between 09:00 and 10:00 Europe/Berlin only when the chosen person has due chores and is available. Notifications work while the app is closed, subject to phone/browser permissions and network availability. Use Send a test notification to verify your device. There are no email reminders.
+
+Push uses standard ES256 VAPID authentication and an empty notification payload. The service worker displays a generic reminder; private chore information is not sent in the push payload. Device endpoints are stored in private Apps Script properties, never in shared JSON. Official Apple, Google and Mozilla push endpoint hosts are allowed. Expired subscriptions are removed. Selecting a different name disables the existing subscription; enable it again for the new name.
+
+## Development and deployment
 
 ```
+npm ci
 npm test
-npm run dev
 npm run build
+npm run dev
 ```
 
-## Google Sheets backend setup
+GitHub Actions tests and deploys `dist` to Pages. Enable Pages with GitHub Actions as source. Public configuration is in `public/config.js`; never put household keys or private push keys there.
 
-1. Use a private Google Sheet with a `Homes` tab and these headers: Household key hash, Revision, Updated at, Household JSON, Last operation ID.
-2. Generate backend code: `node scripts/build-backend.mjs YOUR_SPREADSHEET_ID`.
-3. Open Extensions → Apps Script on the Sheet. Paste `backend/Code.gs`, name the project Flatflow and save. Update `ALLOWED_ORIGINS` if moving to another host.
-4. Set the Apps Script project timezone to Europe/Berlin.
-5. Deploy → New deployment → Web app. Execute as yourself, access Anyone. Review and complete Google's authorization yourself.
-6. Set `BACKEND_URL` in `public/config.js` to the deployed URL ending in `/exec`. It is a public endpoint, not a secret. Never publish household invitation keys.
-7. To enable email reminders, run `installDailyReminders_` once from the Apps Script editor. Review Google's Sheets, trigger-management and send-email permissions. The trigger runs daily at about 09:00 Berlin time. Only verified email addresses receive reminders. Google email quotas apply.
+To rebuild the backend, run `node scripts/build-push.mjs` then `node scripts/build-backend.mjs SHEET_ID`. Paste `backend/Code.gs` into the bound Apps Script project. Keep the Sheet private, with a Homes tab and five columns: Household key hash, Revision, Updated at, Household JSON, Last operation ID. Deploy a web app as the owner, accessible to Anyone. Data requests require a random 256-bit invitation key; only its SHA-256 hash is stored. Writes use revision checking and operation IDs to protect against conflicts/retries.
 
-The spreadsheet remains private. Each home is a JSON snapshot behind a randomly generated 256-bit key; only the hash is stored in the Sheet. Each home supports 30 people, 100 chores, 200 recent activity entries and 40,000 JSON characters. This deployment supports up to 50 homes. Members share editing rights. Removing a flatmate from rotations does not revoke an invitation they already hold. Edit using the app or import validated JSON. If manually editing a JSON cell in Sheets, also increase its revision so clients immediately pick up the change.
+Generate a P-256 VAPID key pair securely and store the private key as hex in the script property `VAPID_PRIVATE`, and the uncompressed public key as base64url in `VAPID_PUBLIC`. Never commit the private key. Run `setupPhoneReminders` from the owner’s editor, reviewing Google’s permissions for Sheets, triggers and external requests. The setup function is owner-restricted. Publish a new deployment version after code changes. Google Apps Script and push service quotas apply; delivery is not guaranteed to the minute.
 
-## GitHub Pages
-
-The included `.github/workflows/pages.yml` tests, builds and publishes `dist/` on pushes to `main`. In Settings → Pages, choose GitHub Actions as the source if it is not enabled automatically. The repository contains app source only. Household names, chores and email addresses stay in the private Google Sheet, never in Git commits.
-
-## Start using it
-
-Choose Create your home, enter a name and choose Shared home. Add flatmates and chores. In Settings, choose yourself and use Invite flatmates. Friends open the invitation link and choose their own names. Keep a saved invitation so you can recover your household on another device.
-
-## Offline and notifications
-
-Previously loaded screens and chores are readable offline. Shared changes require an internet connection; unconfirmed changes are never marked as synced. Device-only mode works without a backend. Browser reminders run while the app is open. Calendar exports are snapshots of the next 60 days; re-export when the routine changes. Daily emails require a configured Apps Script trigger, verified recipient and available Google quotas. Push notifications are not configured.
-
-## Move to another host
-
-Copy `public/` to another HTTPS static host, keep the same Apps Script URL, and update its allowed origin. JSON exports preserve household records. App hosting and storage are independent of ChatGPT billing.
+`backend/PushCrypto.gs` bundles MIT-licensed @noble/curves and @noble/hashes; rebuild with esbuild. Automated tests cover rotation, deletion safeguards, optimistic sync conflicts, private subscriptions, endpoint validation and VAPID signature verification.

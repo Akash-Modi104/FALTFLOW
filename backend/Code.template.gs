@@ -55,54 +55,8 @@ function rpc(request) {
       request.home.people.forEach(p=>{const previous=entry.home.people.find(x=>x.id===p.id);if(previous&&previous.emailVerified){p.email=previous.email;p.emailVerified=true;}else{delete p.email;delete p.emailVerified;}});
       entry.home=request.home;entry.revision++;saveRow_(s,row,entry,request.op);return publicResult_(entry);
     }
-    const p=entry.home.people.find(p=>p.id===request.person);
-    if(!p)throw new Error('Person not found.');
-    const props=PropertiesService.getScriptProperties(),prop='verify_'+hash+'_'+p.id;
-    if(request.action==='requestEmail'){
-      const email=String(request.email||'').trim().toLowerCase();
-      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||email.length>180)throw new Error('Enter a valid email address.');
-      const previous=props.getProperty(prop);if(previous&&Date.now()-JSON.parse(previous).at<3600000)throw new Error('Please wait an hour before requesting another code.');
-      if(MailApp.getRemainingDailyQuota()<5)throw new Error('Email limit reached. Try tomorrow or use calendar reminders.');
-      const code=String(Math.floor(100000+Math.random()*900000));
-      props.setProperty(prop,JSON.stringify({email:email,code:hash_(code),at:Date.now(),attempts:0}));
-      MailApp.sendEmail(email,'Verify your Flatflow reminders','Your code is '+code+'. It expires in 15 minutes. Enter it in Flatflow to subscribe to daily chore reminders. If you did not request this, ignore this email.');
-      return {ok:true,sent:true};
-    }
-    if(request.action==='verifyEmail'){
-      const raw=props.getProperty(prop);if(!raw)throw new Error('Request a verification code first.');const v=JSON.parse(raw);
-      if(Date.now()-v.at>900000||v.attempts>=5)throw new Error('Code expired. Request a new one in an hour.');
-      v.attempts++;props.setProperty(prop,JSON.stringify(v));
-      if(hash_(String(request.code))!==v.code)throw new Error('Incorrect verification code.');
-      p.email=v.email;p.emailVerified=true;props.deleteProperty(prop);entry.revision++;saveRow_(s,row,entry,'email-'+Utilities.getUuid());return publicResult_(entry);
-    }
-    if(request.action==='unsubscribeEmail'){delete p.email;delete p.emailVerified;entry.revision++;saveRow_(s,row,entry,'email-'+Utilities.getUuid());return publicResult_(entry);}
+    if(['pushConfig','subscribePush','unsubscribePush','testPush'].includes(request.action))return pushOperation_(request,entry);
     throw new Error('Unsupported operation.');
   } finally {lock.releaseLock();}
 }
 
-// Run once in the Apps Script editor after reviewing Google's permissions.
-// The reminder trigger runs once daily at about 09:00 Europe/Berlin.
-function installDailyReminders_() {
-  sheet_();
-  const existing=ScriptApp.getProjectTriggers().filter(t=>t.getHandlerFunction()==='sendDailyReminders_');
-  if(!existing.length)ScriptApp.newTrigger('sendDailyReminders_').timeBased().everyDays(1).atHour(9).inTimezone('Europe/Berlin').create();
-  console.log('Daily reminders installed. '+MailApp.getRemainingDailyQuota()+' recipients remaining today.');
-}
-function sendDailyReminders_(){
-  const s=sheet_(),last=s.getLastRow();if(last<2)return;
-  const today=Utilities.formatDate(new Date(),'Europe/Berlin','yyyy-MM-dd'),props=PropertiesService.getScriptProperties();
-  for(let row=2;row<=last;row++){
-    let entry;
-    const lock=LockService.getScriptLock();lock.waitLock(15000);
-    try{entry=readRow_(s,row);if(rollOver_(entry.home,today)){entry.revision++;saveRow_(s,row,entry,'rollover-'+Utilities.getUuid());}}finally{lock.releaseLock();}
-    const h=entry.home;
-    for(const p of h.people){
-      if(!p.emailVerified||!p.email||away_(p,today))continue;
-      const due=h.tasks.filter(t=>!t.paused&&t.due<=today&&assignee_(t,h.people)?.id===p.id);
-      const key='sent_'+entry.hash+'_'+p.id;
-      if(!due.length||props.getProperty(key)===today||MailApp.getRemainingDailyQuota()<1)continue;
-      MailApp.sendEmail(p.email,'Your Flatflow chores · '+h.name,'Hi '+p.name+',\n\nYour chores for today:\n'+due.map(t=>'• '+t.title+' ('+t.minutes+' min; due '+t.due+')').join('\n')+'\n\nOpen your saved Flatflow household invitation to mark them done. Unsubscribe anytime in Flatflow Settings → Email reminders.');
-      props.setProperty(key,today);
-    }
-  }
-}

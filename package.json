@@ -8,5 +8,9 @@
     "test": "node --test tests/*.test.js",
     "dev": "node scripts/serve.mjs",
     "backend": "node scripts/build-backend.mjs"
+  },
+  "devDependencies": {
+    "@noble/curves": "^1.9.7",
+    "esbuild": "^0.25.12"
   }
 }

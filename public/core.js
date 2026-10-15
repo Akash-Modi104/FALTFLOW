@@ -64,3 +64,11 @@ export function calendar(h,person=''){
   const events=schedule(h,60).filter(e=>e.due>=iso()&&(!person||e.person?.id===person));
   return ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Flatflow//Household chores//EN','CALSCALE:GREGORIAN',...events.flatMap(e=>['BEGIN:VEVENT',`UID:${h.id}-${e.task}-${e.due}@flatflow`,`DTSTAMP:${new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'')}`,`DTSTART;VALUE=DATE:${e.due.replaceAll('-','')}`,`DTEND;VALUE=DATE:${addDays(e.due,1).replaceAll('-','')}`,`SUMMARY:${icsEscape(e.title+' · '+(e.person?.name||'Unassigned'))}`,`DESCRIPTION:${icsEscape('Flatflow chore. '+e.minutes+' minutes. Schedule snapshot: re-export after changes.')}`,'BEGIN:VALARM','ACTION:DISPLAY',`DESCRIPTION:${icsEscape(e.title)}`,'TRIGGER:PT9H','END:VALARM','END:VEVENT']),'END:VCALENDAR'].join('\r\n')+'\r\n';
 }
+
+export function removePerson(h,id){
+  const person=h.people.find(p=>p.id===id);if(!person)throw new Error('This flatmate no longer exists.');
+  const solo=h.tasks.filter(t=>t.order.length===1&&t.order[0]===id);
+  if(solo.length)throw new Error('Reassign these chores before deleting this flatmate: '+solo.map(t=>t.title).join(', '));
+  for(const t of h.tasks){if(!t.order.includes(id))continue;const current=assignee(t,h.people)?.id;const next=t.order[(t.order.indexOf(id)+1)%t.order.length];t.order=t.order.filter(x=>x!==id);t.turn=Math.max(0,t.order.indexOf(current&&current!==id?current:next));}
+  h.people=h.people.filter(p=>p.id!==id);record(h,'person',person.name+' left the home');
+}
