@@ -13,3 +13,5 @@ test('missing cache still recovers shared connection',()=>{const db=storage();sa
 test('legacy demo cannot masquerade as a real household',()=>{const db=storage();db.setItem(STORAGE,JSON.stringify({mode:'demo',home:demoHome()}));assert.equal(restoreSession(db).mode,'welcome');});
 test('personal households survive reopening and intentionally replace recovery record',()=>{const db=storage();saveSession(db,shared());const local={...shared(),mode:'local',key:''};saveSession(db,local);assert.equal(db.getItem(CONNECTION),null);assert.equal(restoreSession(db).home.id,local.home.id);assert.equal(restoreSession(db).mode,'local');});
 test('blocked device storage reports failure without inventing demo data',()=>{const db={getItem(){throw Error('blocked')},setItem(){throw Error('blocked')},removeItem(){throw Error('blocked')}};assert.equal(saveSession(db,shared()),false);assert.equal(restoreSession(db).mode,'welcome');});
+
+test('welcome remains welcome after reopening before joining',()=>{const db=storage();saveSession(db,restoreSession(db));assert.equal(restoreSession(db).mode,'welcome');});

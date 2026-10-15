@@ -8,7 +8,7 @@ export function restoreSession(storage,backend=''){
   try{connection=JSON.parse(storage.getItem(CONNECTION)||'null');}catch{}
   const shared=saved?.mode==='shared'&&validKey(saved.key)?saved:validKey(connection?.key)?connection:null;
   if(shared){Object.assign(fresh,{mode:'shared',key:shared.key,myId:shared.myId||'',backend:backend||shared.backend||''});}
-  if(saved&&saved.mode!=='demo'){
+  if(saved&&['local','shared'].includes(saved.mode)){
     try{const h=validateHome(saved.home);if(!shared||saved.key===shared.key){fresh.home=h;fresh.revision=saved.revision||0;if(!shared)fresh.mode='local';fresh.myId=saved.myId||'';}}
     catch{fresh.storageOK=false;}
   }
