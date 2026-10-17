@@ -27,6 +27,7 @@ function publicResult_(entry){return {ok:true,revision:entry.revision,home:entry
 
 // The sole remotely callable data function. Private helpers end in underscore.
 function rpc(request) {
+  if(request&&ACCOUNT_ACTIONS.indexOf(request.action)>=0)return accountOperation_(request);
   if(!request||!request.key||!/^[a-f0-9]{64}$/.test(request.key))throw new Error('Invalid household invitation.');
   const lock=LockService.getScriptLock();lock.waitLock(15000);
   try {
