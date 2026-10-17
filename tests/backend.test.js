@@ -72,3 +72,14 @@ test('new expenses notify the flatmates who owe, with an encrypted message',()=>
   assert.match(message.body,/Alex added Pizza · your share EUR 10.00/);
   b.rpc({action:'write',key,home:structuredClone(next),revision:2,op:randomUUID()});assert.equal(sent.length,1);
 });
+
+test('Apps Script keeps sealed invite codes for a week, three per home',()=>{
+  const b=mockBackend(),h=demoHome();b.rpc({action:'create',key,home:h,op:randomUUID()});
+  const invite='e'.repeat(64),sealed='s'.repeat(80);
+  assert.ok(Date.parse(b.rpc({action:'createInvite',key,invite,sealed}).expires)>Date.now());
+  assert.equal(b.rpc({action:'redeemInvite',invite}).sealed,sealed);
+  assert.throws(()=>b.rpc({action:'redeemInvite',invite:'f'.repeat(64)}),/wrong or has expired/);
+  assert.throws(()=>b.rpc({action:'createInvite',key,invite,sealed:'bad'}),/Invalid invite/);
+  for(const c of '0123')b.rpc({action:'createInvite',key,invite:c.repeat(64),sealed});
+  assert.equal([...b.props.keys()].filter(k=>k.startsWith('invite_')).length,3);
+});
