@@ -21,6 +21,9 @@ export function advance(t,people,on=t.due) {
   const p=assignee(t,people,on);
   t.turn=p?(t.order.indexOf(p.id)+1)%t.order.length:(t.turn+1)%Math.max(1,t.order.length);
 }
+// A home is stored as one JSON document. These limits keep each sync request
+// well under the server's 256 KB request limit.
+export const MAX_EXPENSES=600,MAX_HOME_CHARS=230000;
 export const emptyHome = name => ({schema:1,id:uid(),name:name||'Our happy place',people:[],tasks:[],history:[],created: new Date().toISOString()});
 export function demoHome(){
   const h=emptyHome('The Sunday Club');
@@ -39,7 +42,7 @@ export function validateHome(h){
   for(const t of h.tasks){if(!t||typeof t.id!=='string'||!/^[\w-]{1,80}$/.test(t.id)||taskIds.has(t.id)||typeof t.title!=='string'||!t.title.trim()||t.title.length>100||typeof t.area!=='string'||t.area.length>60||typeof t.icon!=='string'||t.icon.length>16||typeof t.notes!=='string'||t.notes.length>1000||typeof t.paused!=='boolean'||!Number.isInteger(t.every)||t.every<1||t.every>365||!['day','week','month'].includes(t.unit)||!validDate(t.due)||!Number.isInteger(t.anchorDay)||t.anchorDay<1||t.anchorDay>31||!Number.isInteger(t.minutes)||t.minutes<1||t.minutes>600||!Array.isArray(t.order)||new Set(t.order).size!==t.order.length||!t.order.length||t.order.some(id=>!ids.has(id))||!Number.isInteger(t.turn)||t.turn<0||t.turn>=t.order.length)fail();taskIds.add(t.id);}
   for(const e of h.history){if(!e||typeof e.id!=='string'||typeof e.text!=='string'||e.text.length>500||typeof e.at!=='string'||isNaN(Date.parse(e.at))||typeof e.kind!=='string'||typeof e.person!=='string'||typeof e.task!=='string'||!Number.isFinite(e.minutes)||e.minutes<0||e.minutes>600)fail();}
   validateExpenses(h,validDate);
-  if(JSON.stringify(h).length>40000)throw new Error('This home is too large. Export a backup and clear older activity first.');
+  if(JSON.stringify(h).length>MAX_HOME_CHARS)throw new Error('This home is too large. Export a backup and clear older activity first.');
   return h;
 }
 export function record(h,kind,text,person='',task='',minutes=0){h.history.unshift({id:uid(),kind,text,person,task,minutes,at:new Date().toISOString()});h.history=h.history.slice(0,200);}
@@ -90,7 +93,7 @@ function validateExpenses(h,validDate){
   if(h.expenses===undefined)return;
   const validId=id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id),ids=new Set();
   const validSplit=(o,amount)=>{if(!o||typeof o!=='object'||Array.isArray(o))return false;const v=Object.entries(o);return v.length>0&&v.length<=30&&v.every(([id,n])=>validId(id)&&Number.isInteger(n)&&n>=0)&&v.reduce((n,[,x])=>n+x,0)===amount;};
-  if(!Array.isArray(h.expenses)||h.expenses.length>100)fail();
+  if(!Array.isArray(h.expenses)||h.expenses.length>MAX_EXPENSES)fail();
   for(const e of h.expenses){
     if(!e||!validId(e.id)||ids.has(e.id)||!['expense','settle'].includes(e.kind)||typeof e.title!=='string'||!e.title.trim()||e.title.length>100||typeof e.category!=='string'||e.category.length>30||!validDate(e.spentOn)||!validId(e.paidBy)||!Number.isInteger(e.amount)||e.amount<1||e.amount>100000000||!validSplit(e.shares,e.amount))fail();
     if(e.payers!==undefined&&(!validSplit(e.payers,e.amount)||!(e.payers[e.paidBy]>0)))fail();
@@ -189,8 +192,8 @@ export function clearSettledExpenses(h){
 // When the expense list is full, the 30 oldest expenses are folded into a few
 // "Earlier balances" entries with the same net effect, so balances stay exact.
 // Also runs when the home nears the size limit for one home.
-function compactExpenses(h){
-  while(h.expenses.length>30&&(h.expenses.length>=100||JSON.stringify(h).length>34000))foldOldest(h);
+export function compactExpenses(h){
+  while(h.expenses.length>30&&(h.expenses.length>=MAX_EXPENSES||JSON.stringify(h).length>MAX_HOME_CHARS*0.9))foldOldest(h);
 }
 function foldOldest(h){
   const old=h.expenses.slice(-30),carried=[],day=old.map(e=>e.spentOn).sort().pop();

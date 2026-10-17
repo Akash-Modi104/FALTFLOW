@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {webcrypto} from 'node:crypto';
 globalThis.crypto ||= webcrypto;
-import {demoHome,validateHome,splitAmount,expenseBalances,settlements,addExpense,removeExpense,clearSettledExpenses,removePerson,iso} from '../public/core.js';
+import {MAX_EXPENSES,demoHome,validateHome,splitAmount,expenseBalances,settlements,addExpense,removeExpense,clearSettledExpenses,removePerson,iso} from '../public/core.js';
 
 test('equal and weighted splits always add up to the exact amount',()=>{
   assert.deepEqual(splitAmount(1000,{a:1,b:1,c:1}),{a:334,b:333,c:333});
@@ -52,11 +52,11 @@ test('recurring bills post on their due dates and survive validation',async()=>{
 });
 test('a full expense list folds old expenses into exact carried-over balances',()=>{
   const h=demoHome(),[a,b,c]=h.people.map(p=>p.id);
-  for(let i=0;i<130;i++)addExpense(h,{title:'Snack '+i,spentOn:iso(),paidBy:[a,b,c][i%3],amount:300+i,shares:splitAmount(300+i,{[a]:1,[b]:1,[c]:1})});
+  for(let i=0;i<MAX_EXPENSES+30;i++)addExpense(h,{title:'Snack '+i,spentOn:iso(),paidBy:[a,b,c][i%3],amount:300+i,shares:splitAmount(300+i,{[a]:1,[b]:1,[c]:1})});
   const net=JSON.stringify(expenseBalances(h));
-  assert.ok(h.expenses.length<=100);assert.ok(h.expenses.some(e=>e.title==='Earlier balances'));
+  assert.ok(h.expenses.length<=MAX_EXPENSES);assert.ok(h.expenses.some(e=>e.title==='Earlier balances'));
   validateHome(h);
-  const exact={};for(let i=0;i<130;i++){const amount=300+i,shares=splitAmount(amount,{[a]:1,[b]:1,[c]:1}),payer=[a,b,c][i%3];exact[payer]=(exact[payer]||0)+amount;for(const [id,v] of Object.entries(shares))exact[id]=(exact[id]||0)-v;}
+  const exact={};for(let i=0;i<MAX_EXPENSES+30;i++){const amount=300+i,shares=splitAmount(amount,{[a]:1,[b]:1,[c]:1}),payer=[a,b,c][i%3];exact[payer]=(exact[payer]||0)+amount;for(const [id,v] of Object.entries(shares))exact[id]=(exact[id]||0)-v;}
   for(const id of Object.keys(exact))if(!exact[id])delete exact[id];
   assert.deepEqual(JSON.parse(net),exact);
 });
@@ -107,9 +107,18 @@ test('person-to-person debts match the simplified totals',async()=>{
 
 test('folding old expenses keeps each currency separate',()=>{
   const h=demoHome(),[a,b]=h.people.map(p=>p.id);h.currency='EUR';
-  for(let i=0;i<110;i++)addExpense(h,{title:'T'+i,spentOn:iso(),paidBy:i%2?a:b,amount:100+i,currency:i%3?'EUR':'USD',shares:{[a]:50,[b]:50+i}});
-  validateHome(h);assert.ok(h.expenses.length<=100);
-  let eur={},usd={};for(let i=0;i<110;i++){const t=i%3?eur:usd,p=i%2?a:b;t[p]=(t[p]||0)+100+i;t[a]=(t[a]||0)-50;t[b]=(t[b]||0)-(50+i);}
+  for(let i=0;i<MAX_EXPENSES+10;i++)addExpense(h,{title:'T'+i,spentOn:iso(),paidBy:i%2?a:b,amount:100+i,currency:i%3?'EUR':'USD',shares:{[a]:50,[b]:50+i}});
+  validateHome(h);assert.ok(h.expenses.length<=MAX_EXPENSES);
+  let eur={},usd={};for(let i=0;i<MAX_EXPENSES+10;i++){const t=i%3?eur:usd,p=i%2?a:b;t[p]=(t[p]||0)+100+i;t[a]=(t[a]||0)-50;t[b]=(t[b]||0)-(50+i);}
   for(const t of [eur,usd])for(const k of Object.keys(t))if(!t[k])delete t[k];
   assert.deepEqual(expenseBalances(h,'EUR'),eur);assert.deepEqual(expenseBalances(h,'USD'),usd);
+});
+
+test('a long Splitwise history imports in full, folding only what would not fit',async()=>{
+  const {importSplitwise}=await import('../public/splitwise.js');
+  const h=demoHome(),[a,b]=h.people.map(p=>p.id);h.expenses=[];
+  const make=n=>Array.from({length:n},(_,i)=>({id:crypto.randomUUID(),kind:'expense',title:'Item '+i,category:'General',spentOn:'2026-01-'+String(1+i%28).padStart(2,'0'),paidBy:i%2?a:b,amount:1000+i,shares:{[a]:500,[b]:500+i}}));
+  importSplitwise(h,make(499));validateHome(h);assert.equal(h.expenses.length,499);
+  const net=JSON.stringify(expenseBalances(h));
+  importSplitwise(h,make(200));validateHome(h);assert.ok(h.expenses.length<=MAX_EXPENSES);assert.ok(h.expenses.some(e=>e.title==='Earlier balances'));
 });
