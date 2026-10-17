@@ -19,3 +19,25 @@ export class SheetsSync {
   async call(payload){await this.ready;const id=crypto.randomUUID();return new Promise((resolve,reject)=>{const timer=setTimeout(()=>{this.pending.delete(id);reject(new Error('Sync timed out. Reconnect before making more changes.'));},25000);this.pending.set(id,{resolve,reject,timer});this.target.postMessage({channel:'flatflow',nonce:this.nonce,id,payload},this.origin);});}
   close(){this.rejectReady(new Error('Connection closed. Please reconnect.'));clearTimeout(this.timer);window.removeEventListener('message',this.listener);this.frame.remove();for(const p of this.pending.values()){clearTimeout(p.timer);p.reject(new Error('Connection closed.'));}this.pending.clear();}
 }
+// Cloudflare Workers backend: plain HTTPS requests. text/plain keeps them
+// "simple" requests, so browsers skip the extra CORS preflight round trip.
+export class ApiSync {
+  constructor(url){
+    if(!/^https:\/\/[\w.-]+\/rpc$/.test(url))throw new Error('Use the Flatflow backend address ending in /rpc.');
+    this.url=url;this.controllers=new Set();this.ready=Promise.resolve();
+  }
+  async call(payload){
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),25000);this.controllers.add(controller);
+    try{
+      const response=await fetch(this.url,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(payload),signal:controller.signal,credentials:'omit',referrerPolicy:'no-referrer'});
+      let data;try{data=await response.json();}catch{throw new Error('Sync failed. Try again.');}
+      if(data&&data.error)throw new Error(data.error);
+      if(!response.ok)throw new Error('Sync failed. Try again.');
+      return data;
+    }catch(err){if(err.name==='AbortError')throw new Error(controller.closed?'Connection closed.':'Sync timed out. Reconnect before making more changes.');throw err;}
+    finally{clearTimeout(timer);this.controllers.delete(controller);}
+  }
+  close(){for(const c of this.controllers){c.closed=true;c.abort();}this.controllers.clear();}
+}
+// Picks the transport from the configured backend address.
+export const createSync=url=>/^https:\/\/script\.google\.com\//.test(url)?new SheetsSync(url):new ApiSync(url);

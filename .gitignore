@@ -3,3 +3,5 @@ dist/
 backend/Code.gs
 backend/deploy/
 .clasp.json
+.wrangler/
+.dev.vars

@@ -1,0 +1,22 @@
+# Flatflow backend on Cloudflare's Workers Free plan. No payment method is needed;
+# over the free limits requests fail until the next day instead of being billed.
+name = "flatflow"
+main = "worker/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "flatflow"
+# Replace with the id printed by: npx wrangler@4.151.1 d1 create flatflow
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[triggers]
+# Every 5 minutes from 07:00 to 08:55 UTC; the worker only sends during 09:00–10:00 Berlin time
+# (so it is right in both summer and winter time), a small batch per run.
+crons = ["*/5 7,8 * * *"]
+
+# Secrets, set once with `npx wrangler@4.151.1 secret put NAME`:
+#   VAPID_PRIVATE, VAPID_PUBLIC  copy from the Apps Script project's script properties
+#   GOOGLE_CLIENT_ID             the same OAuth client ID as the Apps Script backend
+#   MIGRATION_TOKEN              only while copying data from the Sheet; delete afterwards

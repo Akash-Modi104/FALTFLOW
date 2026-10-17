@@ -28,6 +28,21 @@ Use Settings → Enable phone notifications after choosing your name. On iPhone/
 
 Push uses standard ES256 VAPID authentication. Daily chore reminders have an empty payload, and the service worker shows a generic reminder. When a flatmate adds an expense you share, or pays you back, the devices of the people involved (not the payer) get a short message such as "Alex added Pizza · your share EUR 10.00". These messages are end-to-end encrypted to each device (RFC 8291, aes128gcm), so push services can't read them. Devices enabled before this feature share their encryption keys automatically the next time the app opens. Device endpoints are stored in private Apps Script properties, never in shared JSON. Official Apple, Google and Mozilla push endpoint hosts are allowed. Expired subscriptions are removed. Selecting a different name disables the existing subscription; enable it again for the new name.
 
+## Free Cloudflare backend (optional)
+
+`worker/` is a second backend for Cloudflare's Workers Free plan with a D1 database. It answers the same requests as the Apps Script backend, so the app works with either: `public/config.js` decides which one it uses (a `script.google.com` address uses Apps Script, an address ending in `/rpc` uses the worker). It needs no payment method, and on the free plan going over a limit makes requests fail until the next day instead of costing money. Compared with Apps Script it answers in tens of milliseconds instead of seconds, keeps each home in its own database row instead of one Sheet cell, and has no iframe bridge.
+
+Set it up once from a computer with Node (all free, no card):
+1. Create a free Cloudflare account, then run `npx wrangler@4.151.1 login`.
+2. `npx wrangler@4.151.1 d1 create flatflow` and put the printed `database_id` in `wrangler.toml`.
+3. `npx wrangler@4.151.1 d1 execute flatflow --remote --file worker/schema.sql`
+4. Copy the Apps Script project's `VAPID_PRIVATE`, `VAPID_PUBLIC` and `GOOGLE_CLIENT_ID` script properties with `npx wrangler@4.151.1 secret put NAME` each. Keeping the same VAPID keys keeps every phone's notifications working.
+5. `npm run deploy-worker` prints the worker address, such as `https://flatflow.<you>.workers.dev`.
+
+To copy the data from the Sheet: set a long random `MIGRATION_TOKEN` with `wrangler secret put`, add the same value and the worker address as the `MIGRATION_TOKEN` and `CLOUDFLARE_URL` script properties in Apps Script, then run `migrateToCloudflare` from the Apps Script editor. It copies every home, account, sign-in session and phone subscription and can be run again; a home is never replaced by an older copy. To switch over, run it once more, set `BACKEND_URL` in `public/config.js` to the worker address followed by `/rpc`, and deploy the app. Then delete the `MIGRATION_TOKEN` secret, which turns the copy endpoint off. Invitation links, sign-ins and notifications keep working. To go back, point `BACKEND_URL` at the Apps Script address again.
+
+Daily chore reminders come from a cron trigger that runs every five minutes between 09:00 and 10:00 Berlin time and handles 25 phones per run, up to 300 phones a day. The worker allows up to 200 homes and 300 phones.
+
 ## Development and deployment
 
 ```
