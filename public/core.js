@@ -57,7 +57,7 @@ export function rollOver(h,today=iso()){
       advance(t,h.people);t.due=nextDue(t);changed=true;
     }
   }
-  return changed;
+  return postDueBills(h,today)||changed;
 }
 export function skip(h,id,reason){const t=h.tasks.find(t=>t.id===id),p=t&&assignee(t,h.people);if(!p)throw new Error('No one is available for this task.');const other=t.order.filter(id=>id!==p.id).find(id=>{const x=h.people.find(p=>p.id===id);return x&&!away(x,t.due);});if(!other)throw new Error('Add another available person before passing this turn.');advance(t,h.people);record(h,'skip',`${p.name} passed ${t.title}${reason?`: ${reason}`:''}`,p.id,t.id);}
 export function schedule(h,days=35){const result=[],end=addDays(iso(),days);for(const original of h.tasks.filter(t=>!t.paused)){const t=structuredClone(original);for(let i=0;i<400&&t.due<=end;i++){const p=assignee(t,h.people);result.push({task:t.id,title:t.title,icon:t.icon,area:t.area,due:t.due,person:p,minutes:t.minutes});advance(t,h.people);t.due=nextDue(t);}}return result.sort((a,b)=>a.due.localeCompare(b.due)||a.title.localeCompare(b.title));}
@@ -80,6 +80,7 @@ export function removePerson(h,id){
 // share owed by every participant, so balances never drift from rounding.
 // Settlements are expenses of kind 'settle': the payer is owed back by the receiver.
 function validateExpenses(h,validDate){
+  validateBills(h,validDate);
   if(h.expenses===undefined)return;
   const fail=()=>{throw new Error('This is not a valid Flatflow backup. No data was changed.');};
   const validId=id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id),ids=new Set();
@@ -121,7 +122,7 @@ export function addExpense(h,e){
   const people=new Set(h.people.map(p=>p.id));
   if(!people.has(e.paidBy)||Object.keys(e.shares).some(id=>!people.has(id)))throw new Error('Choose current flatmates for this expense.');
   h.expenses=h.expenses||[];
-  if(h.expenses.length>=100)throw new Error('This home keeps up to 100 expenses. Settle up and clear settled expenses first.');
+  compactExpenses(h);
   const expense={id:uid(),kind:e.kind||'expense',title:e.title,category:e.category||'',spentOn:e.spentOn,paidBy:e.paidBy,amount:e.amount,shares:e.shares};
   h.expenses.unshift(expense);
   const payer=h.people.find(p=>p.id===e.paidBy).name,cents=`${h.currency||'EUR'} ${(e.amount/100).toFixed(2)}`;
@@ -137,4 +138,45 @@ export function removeExpense(h,id){
 export function clearSettledExpenses(h){
   if(Object.keys(expenseBalances(h)).length)throw new Error('Settle every balance before clearing expenses.');
   const n=(h.expenses||[]).length;h.expenses=[];record(h,'expense',`${n} settled expense${n===1?'':'s'} cleared`);
+}
+// When the expense list is full, the 30 oldest expenses are folded into a few
+// "Earlier balances" entries with the same net effect, so balances stay exact.
+// Also runs when the home nears the size a Google Sheets cell can hold.
+function compactExpenses(h){
+  while(h.expenses.length>30&&(h.expenses.length>=100||JSON.stringify(h).length>34000))foldOldest(h);
+}
+function foldOldest(h){
+  const old=h.expenses.slice(-30),net={};
+  for(const e of old){net[e.paidBy]=(net[e.paidBy]||0)+e.amount;for(const [id,v] of Object.entries(e.shares))net[id]=(net[id]||0)-v;}
+  const carried=[];
+  const owe=[],owed=[];for(const [id,v] of Object.entries(net))if(v)(v<0?owe:owed).push({id,v:Math.abs(v)});
+  owe.sort((a,b)=>b.v-a.v);owed.sort((a,b)=>b.v-a.v);let i=0,j=0;
+  const day=old.map(e=>e.spentOn).sort().pop();
+  while(i<owe.length&&j<owed.length){const amount=Math.min(owe[i].v,owed[j].v);carried.push({id:uid(),kind:'expense',title:'Earlier balances',category:'Carried over',spentOn:day,paidBy:owed[j].id,amount,shares:{[owe[i].id]:amount}});owe[i].v-=amount;owed[j].v-=amount;if(!owe[i].v)i++;if(!owed[j].v)j++;}
+  h.expenses=h.expenses.slice(0,-30).concat(carried);
+}
+// Recurring bills (rent, internet…) post a normal expense each time they fall due.
+function validateBills(h,validDate){
+  if(h.bills===undefined)return;
+  const fail=()=>{throw new Error('This is not a valid Flatflow backup. No data was changed.');};
+  const validId=id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id),ids=new Set();
+  if(!Array.isArray(h.bills)||h.bills.length>20)fail();
+  for(const b of h.bills){
+    if(!b||!validId(b.id)||ids.has(b.id)||typeof b.title!=='string'||!b.title.trim()||b.title.length>100||typeof b.category!=='string'||b.category.length>30||!validId(b.paidBy)||!Number.isInteger(b.amount)||b.amount<1||b.amount>100000000||!b.shares||typeof b.shares!=='object'||Array.isArray(b.shares)||!validDate(b.due)||!['day','week','month'].includes(b.unit)||!Number.isInteger(b.every)||b.every<1||b.every>365||!Number.isInteger(b.anchorDay)||b.anchorDay<1||b.anchorDay>31||typeof b.paused!=='boolean')fail();
+    const shares=Object.entries(b.shares);
+    if(!shares.length||shares.length>30||shares.some(([id,v])=>!validId(id)||!Number.isInteger(v)||v<0)||shares.reduce((n,[,v])=>n+v,0)!==b.amount)fail();
+    ids.add(b.id);
+  }
+}
+export function postDueBills(h,today=iso()){
+  let changed=false;
+  for(const b of (h.bills||[]).filter(b=>!b.paused)){
+    for(let n=0;b.due<=today&&n<24;n++){
+      const ids=new Set(h.people.map(p=>p.id));
+      if(!ids.has(b.paidBy)||Object.keys(b.shares).some(id=>!ids.has(id))){b.paused=true;record(h,'expense',`${b.title} was paused because a flatmate in it left`);changed=true;break;}
+      addExpense(h,{title:b.title,category:b.category,spentOn:b.due,paidBy:b.paidBy,amount:b.amount,shares:b.shares});
+      b.due=nextDue(b);changed=true;
+    }
+  }
+  return changed;
 }
