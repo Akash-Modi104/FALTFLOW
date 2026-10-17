@@ -39,7 +39,7 @@ export function writeXlsx(sheets){
 async function unzip(buffer){
   const bytes=new Uint8Array(buffer),view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),out=new Map();
   let end=-1;for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--)if(view.getUint32(i,true)===0x06054b50){end=i;break;}
-  if(end<0)throw new Error('This is not an Excel file.');
+  if(end<0)throw new Error(bytes[0]===0x50&&bytes[1]===0x4b?'This Excel file is incomplete. Download or export it again, then import it.':'This is not an Excel file.');
   let p=view.getUint32(end+16,true);const count=view.getUint16(end+10,true);
   for(let n=0;n<count;n++){
     if(view.getUint32(p,true)!==0x02014b50)throw new Error('This Excel file is damaged.');
