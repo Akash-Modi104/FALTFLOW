@@ -1,10 +1,10 @@
-import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=18';
-import {postDueBills,splitAmount,expenseBalances,settlements,addExpense,editExpense,addComment,paidShares,expenseCurrency,currenciesInUse,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,nextDue,away,assignee,advance,emptyHome,demoHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=18';
-import {createSync} from './sync.js?v=18';
-import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=18';
-import {BACKEND_URL} from './config.js?v=18';
-import {writeXlsx,readXlsx,rowsToCsv,excelDate} from './xlsx.js?v=18';
-import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=18';
+import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=19';
+import {postDueBills,splitAmount,expenseBalances,settlements,addExpense,editExpense,addComment,paidShares,expenseCurrency,currenciesInUse,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,nextDue,away,assignee,advance,emptyHome,demoHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=19';
+import {createSync} from './sync.js?v=19';
+import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=19';
+import {BACKEND_URL} from './config.js?v=19';
+import {writeXlsx,readXlsx,rowsToCsv} from './xlsx.js?v=19';
+import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=19';
 
 const icons={home:'<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',check:'<path d="m5 12 4 4 10-10"/>',tasks:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h6"/>',calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',people:'<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 5"/>',settings:'<path d="m9 3 1 3h4l1-3 4 3-2 3 2 3 2 1-2 5-3-1-3 2-1 3H8l-1-3-3-2-2-3 3-2 1-3-2-3Z"/><circle cx="12" cy="12" r="3"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',repeat:'<path d="M4 8h14l-3-3M20 16H6l3 3M20 8v4M4 16v-4"/>',plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="M5 12h14m-5-5 5 5-5 5"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',bell:'<path d="M5 17h14l-2-4V8a5 5 0 0 0-10 0v5Zm5 3h4"/>',leaf:'<path d="M5 18C1 6 12 3 21 3c0 12-6 17-13 14M5 21 16 9"/>',share:'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m9 10 6-4m-6 8 6 4"/>',download:'<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4M18 4h4"/>',history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l4 2"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',wallet:'<path d="M4 7h15a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a2 2 0 0 1 2-2h11v3"/><path d="M16 13.5h.01"/>'};
 const I=n=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[n]||icons.home}</svg>`;
@@ -310,7 +310,7 @@ function splitwiseImport(){
   const input=document.createElement('input');input.type='file';input.accept='.csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';input.className='file-input';document.body.append(input);
   input.addEventListener('change',async()=>{try{const file=input.files[0];if(!file)return;if(file.size>5000000)throw new Error('That file is too large for a Splitwise group export.');
     // Excel exports are read in the browser and handed to the same importer as CSV.
-    let text;if(/\.xlsx$/i.test(file.name)||file.type.includes('spreadsheetml')){const rows=await readXlsx(await file.arrayBuffer()),d=(rows[0]||[]).findIndex(h=>String(h).trim().toLowerCase()==='date');text=rowsToCsv(rows.map((r,i)=>i&&d>=0?r.map((v,j)=>j===d?excelDate(v):v):r));}else text=await file.text();
+    let text;if(/\.xlsx$/i.test(file.name)||file.type.includes('spreadsheetml')){text=rowsToCsv(await readXlsx(await file.arrayBuffer()));}else text=await file.text();
     splitwiseDialog(readSplitwise(text));}catch(err){toast(err.message,true);}finally{input.remove();}},{once:true});input.click();
 }
 function splitwiseDialog(data){

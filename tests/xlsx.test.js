@@ -25,3 +25,19 @@ test('Splitwise Excel exports import like CSV, with Excel dates and shared strin
   assert.equal(data.entries[0].date,'2026-09-15');
   assert.equal(excelDate('2026-01-01'),'2026-01-01');
 });
+test('spreadsheets saved by Excel import, with long decimals, date-times and a title row above the header',async()=>{
+  // Excel keeps 33.33 as 33.329999999999998 and dates as day numbers with a time part.
+  const rows=await readXlsx(fs.readFileSync(new URL('./fixtures/splitwise-excel-saved.xlsx',import.meta.url)));
+  assert.match(rows.flat().join(' '),/99999999/);
+  const data=readSplitwise(rowsToCsv(rows));
+  assert.deepEqual(data.skipped,[]);assert.equal(data.entries.length,5);
+  assert.deepEqual(data.members,['Akash Modi','Mia','Leo']);
+  assert.equal(data.entries[0].date,'2026-09-01');
+  assert.deepEqual(data.entries[1].nets,{'Akash Modi':-1111,Mia:2222,Leo:-1111});
+});
+test('empty <row/> elements and namespaced tags such as <x:row> do not merge or hide rows',async()=>{
+  const rows=await readXlsx(fs.readFileSync(new URL('./fixtures/splitwise-prefixed.xlsx',import.meta.url)));
+  const data=readSplitwise(rowsToCsv(rows));
+  assert.deepEqual(data.skipped,[]);assert.equal(data.entries.length,5);
+  assert.deepEqual(data.members,['Akash Modi','Mia','Leo']);
+});
