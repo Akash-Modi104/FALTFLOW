@@ -1,4 +1,4 @@
-import {uid,iso,record,compactExpenses,MAX_EXPENSES} from './core.js?v=21';
+import {uid,iso,record,compactExpenses,MAX_EXPENSES} from './core.js?v=22';
 // Reads the CSV that Splitwise exports per group: Date, Description, Category,
 // Cost, Currency, then one column per member holding that member's net change
 // for the row (positive for whoever paid, negative for whoever owes).
@@ -54,10 +54,12 @@ function pairUp(nets){
 // still owed, as opening balances, which keeps large groups small.
 export function splitwiseExpenses(data,mapping,currency,mode='history'){
   const rows=data.entries.filter(e=>e.currency===currency),ignored=data.entries.length-rows.length;
-  const mapNets=nets=>{const out={};for(const [name,v] of Object.entries(nets)){const id=mapping[name];if(v&&!id)throw new Error(`Choose a flatmate for ${name}.`);if(v)out[id]=(out[id]||0)+v;}return out;};
+  const mapNets=nets=>{const out={};for(const [name,v] of Object.entries(nets)){const id=mapping[name];if(v&&!id)throw new Error(mode==='balances'?`${name} still owes or is owed money. Match them to a flatmate or add them.`:`${name} is part of some expenses, so they can’t be left out of the full history. Match them to a flatmate, add them, or import balances only.`);if(v)out[id]=(out[id]||0)+v;}return out;};
   const expenses=[];
   if(mode==='balances'){
-    const total={};for(const e of rows)for(const [id,v] of Object.entries(mapNets(e.nets)))total[id]=(total[id]||0)+v;
+    // Only each person's final balance matters here, so anyone who ends up square can be left out.
+    const byName={};for(const e of rows)for(const [name,v] of Object.entries(e.nets))byName[name]=(byName[name]||0)+v;
+    const total=mapNets(byName);
     for(const p of pairUp(total))expenses.push({id:uid(),kind:'expense',title:'Opening balance from Splitwise',category:'Splitwise',spentOn:iso(),paidBy:p.to,amount:p.amount,shares:{[p.from]:p.amount}});
     return {expenses,ignored};
   }
