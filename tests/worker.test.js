@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 import {randomUUID,createECDH,createPublicKey,verify,hkdfSync,createDecipheriv,randomBytes} from 'node:crypto';
 import {demoHome,addDays} from '../public/core.js';
-import {createBackend,hash,berlinDate} from '../worker/backend.js';
+import {createBackend,hash,berlinDate,withSettings} from '../worker/backend.js';
 import worker from '../worker/index.js';
 
 // A tiny D1 stand-in on Node's built-in SQLite, with the same statement API.
@@ -128,6 +128,10 @@ test('migration copies Sheet rows and script properties, never replacing newer d
   assert.equal((await w.rpc({action:'myHomes',session})).homes[0].key,key);
   assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM devices').get().n,1);
   assert.ok(!JSON.stringify(w.db.sqlite.prepare('SELECT * FROM accounts').all()).includes('never copied'));
+  await assert.rejects(w.backend.migrate({settings:{OTHER:'x'}}),/Invalid setting/);
+  await w.backend.migrate({settings:{...vapid,GOOGLE_CLIENT_ID:'client-123'}});
+  const env=await withSettings({DB:w.db,GOOGLE_CLIENT_ID:'from-secret'},0);
+  assert.equal(env.VAPID_PRIVATE,vapid.VAPID_PRIVATE);assert.equal(env.GOOGLE_CLIENT_ID,'from-secret');
 });
 
 test('HTTP layer only answers Flatflow origins and hides the migration endpoint',async()=>{

@@ -1,4 +1,4 @@
-import {createBackend} from './backend.js';
+import {createBackend, withSettings} from './backend.js';
 
 const ALLOWED_ORIGINS = ['https://akash-modi104.github.io','http://localhost:4173','http://127.0.0.1:4173'];
 const MAX_BODY = 256 * 1024;
@@ -36,7 +36,7 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, {status:204, headers:json({}, 204, origin).headers});
     if (request.method !== 'POST') return json({error:'Unsupported request.'}, 405, origin);
     try {
-      const backend = createBackend(env, {waitUntil:p => ctx.waitUntil(p)});
+      const backend = createBackend(await withSettings(env), {waitUntil:p => ctx.waitUntil(p)});
       return json(await backend.rpc(await readBody(request)), 200, origin);
     } catch (err) {
       if (!err?.expose) console.log('Request failed: ' + err?.stack);
@@ -44,6 +44,6 @@ export default {
     }
   },
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(createBackend(env).daily(new Date(event.scheduledTime)));
+    ctx.waitUntil(withSettings(env).then(e => createBackend(e).daily(new Date(event.scheduledTime))));
   }
 };

@@ -27,3 +27,7 @@ CREATE TABLE IF NOT EXISTS devices (
   test_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS devices_home ON devices (home);
+CREATE TABLE IF NOT EXISTS settings (
+  name TEXT PRIMARY KEY,          -- VAPID_PRIVATE, VAPID_PUBLIC or GOOGLE_CLIENT_ID, copied by the migration
+  value TEXT NOT NULL
+);

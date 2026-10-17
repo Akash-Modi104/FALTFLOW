@@ -16,7 +16,6 @@ database_id = "REPLACE_WITH_D1_DATABASE_ID"
 # (so it is right in both summer and winter time), a small batch per run.
 crons = ["*/5 7,8 * * *"]
 
-# Secrets, set once with `npx wrangler@4.151.1 secret put NAME`:
-#   VAPID_PRIVATE, VAPID_PUBLIC  copy from the Apps Script project's script properties
-#   GOOGLE_CLIENT_ID             the same OAuth client ID as the Apps Script backend
-#   MIGRATION_TOKEN              only while copying data from the Sheet; delete afterwards
+# Secret, set with `npx wrangler@4.151.1 secret put MIGRATION_TOKEN` only while copying
+# data from the Sheet, then deleted. The migration also copies VAPID_PRIVATE,
+# VAPID_PUBLIC and GOOGLE_CLIENT_ID into D1; secrets with those names would override them.

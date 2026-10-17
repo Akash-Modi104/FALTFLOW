@@ -1,11 +1,13 @@
-// Copies every home, account, session and phone subscription to the Cloudflare
-// backend. Run from the owner's editor after setting the script properties
-// CLOUDFLARE_URL (the worker address) and MIGRATION_TOKEN (the same value as the
-// worker's secret). It only reads from this project, so it can be run again
-// right before switching the app over; newer copies are never overwritten.
+// Copies every home, account, session and phone subscription, plus the push keys
+// and Google client ID, to the Cloudflare backend. Run from the owner's editor after
+// setting the script properties CLOUDFLARE_URL (the worker address) and
+// MIGRATION_TOKEN (the same value as the worker's secret), or a temporary
+// MIGRATION_CONFIG = {url, token} file. It only reads from this project, so it can
+// be run again right before switching the app over; newer copies are never overwritten.
 function migrateToCloudflare(){
   if(Session.getActiveUser().getEmail()!=='developer.akash1043@gmail.com')throw new Error('Run the migration from the owner’s Apps Script editor.');
-  const props=PropertiesService.getScriptProperties(),url=String(props.getProperty('CLOUDFLARE_URL')||'').replace(/\/+$/,''),token=props.getProperty('MIGRATION_TOKEN');
+  const props=PropertiesService.getScriptProperties(),config=typeof MIGRATION_CONFIG==='object'?MIGRATION_CONFIG:{};
+  const url=String(props.getProperty('CLOUDFLARE_URL')||config.url||'').replace(/\/+$/,''),token=props.getProperty('MIGRATION_TOKEN')||config.token;
   if(!/^https:\/\/[\w.-]+$/.test(url)||!token)throw new Error('Set the CLOUDFLARE_URL and MIGRATION_TOKEN script properties first.');
   const send=body=>{
     const response=UrlFetchApp.fetch(url+'/migrate',{method:'post',contentType:'application/json',headers:{Authorization:'Bearer '+token},payload:JSON.stringify(body),muteHttpExceptions:true,followRedirects:false});
@@ -20,5 +22,8 @@ function migrateToCloudflare(){
   }
   const all=props.getProperties(),names=Object.keys(all).filter(k=>/^(account|session|device)_[a-f0-9]{64}$/.test(k));
   for(let i=0;i<names.length;i+=50){const properties={};names.slice(i,i+50).forEach(k=>properties[k]=all[k]);records+=send({properties:properties});}
-  console.log('Copied '+homes+' homes and '+records+' accounts, sessions and devices to '+url+'.');
+  // The same VAPID keys keep every phone's existing subscription working.
+  const settings={};['VAPID_PRIVATE','VAPID_PUBLIC','GOOGLE_CLIENT_ID'].forEach(k=>{if(props.getProperty(k))settings[k]=props.getProperty(k);});
+  send({settings:settings});
+  console.log('Copied '+homes+' homes and '+records+' accounts, sessions and devices and '+Object.keys(settings).join(', ')+' to '+url+'.');
 }

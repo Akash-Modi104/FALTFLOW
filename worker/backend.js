@@ -19,6 +19,20 @@ const token = () => [...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toS
 const validKey = k => typeof k==='string' && /^[a-f0-9]{64}$/.test(k);
 const fail = message => {const e = new Error(message);e.expose = true;throw e;};
 
+// Values copied from the Apps Script project by the migration. Worker secrets
+// with the same names take precedence.
+export const SETTINGS = ['VAPID_PRIVATE','VAPID_PUBLIC','GOOGLE_CLIENT_ID'];
+let cachedSettings = null;
+export async function withSettings(env, maxAge = 60000) {
+  if (!cachedSettings || cachedSettings.db !== env.DB || Date.now() - cachedSettings.at > maxAge) {
+    const {results} = await env.DB.prepare('SELECT name, value FROM settings').all();
+    cachedSettings = {db:env.DB, at:Date.now(), values:Object.fromEntries(results.map(r=>[r.name, r.value]))};
+  }
+  const merged = {...env};
+  for (const name of SETTINGS) if (!merged[name] && cachedSettings.values[name]) merged[name] = cachedSettings.values[name];
+  return merged;
+}
+
 export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
   const db = env.DB;
   const readHome = async h => {
@@ -236,6 +250,10 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
       if (kind === 'account') statements.push(db.prepare('INSERT OR REPLACE INTO accounts (id, data) VALUES (?, ?)').bind(id, JSON.stringify({homes:v.homes || [], email:v.email || '', name:v.name || ''})));
       if (kind === 'session' && v.exp > Date.now()) statements.push(db.prepare('INSERT OR REPLACE INTO sessions (id, sub, exp) VALUES (?, ?, ?)').bind(id, String(v.sub), v.exp));
       if (kind === 'device') statements.push(db.prepare('INSERT OR REPLACE INTO devices (id, home, person, endpoint, keys, sent, test_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, String(v.home), String(v.person), pushEndpoint(v.endpoint), v.keys ? JSON.stringify(v.keys) : null, String(v.sent || ''), Number(v.testAt) || 0));
+    }
+    for (const [name, value] of Object.entries(body.settings || {})) {
+      if (!SETTINGS.includes(name) || typeof value !== 'string' || value.length > 512) fail('Invalid setting.');
+      statements.push(db.prepare('INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)').bind(name, value));
     }
     if (statements.length) await db.batch(statements);
     return {ok:true, imported:statements.length};
