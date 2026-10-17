@@ -8,6 +8,10 @@ Create one shared household and send its invitation from Settings → Invite fla
 
 Add chores with daily, weekly, monthly or custom intervals, select participants and rotation order. Complete, pass, postpone or reassign a turn. Set away dates or breaks for flatmates. Delete a flatmate from their edit screen after reassigning any chores where they are the only participant. Updates sync online; cached chores can be viewed offline. Export/import JSON backups in Settings.
 
+## Shared expenses
+
+Expenses splits shared costs Splitwise-style. Log who paid, then split equally, by exact amounts or by shares (for example 2 : 1). Flatflow keeps a running balance per flatmate and suggests the fewest payments needed to settle up. Record a payment once money changes hands; payments happen outside the app. Amounts are stored as integer cents with each person's exact share, so balances never drift from rounding. Choose the household currency in Settings. A home keeps up to 100 expenses; once everyone is square, clear settled expenses to keep the household small. Flatmates with an open balance cannot be deleted until they settle up.
+
 ## Phone notifications
 
 Use Settings → Enable phone notifications after choosing your name. On iPhone/iPad (iOS 16.4+), first add Flatflow to the Home Screen from Safari, open that installed app, and allow notifications. On Android use Chrome. Every device subscribes separately. A daily Apps Script trigger sends a push between 09:00 and 10:00 Europe/Berlin only when the chosen person has due chores and is available. Notifications work while the app is closed, subject to phone/browser permissions and network availability. Use Send a test notification to verify your device. There are no email reminders.
