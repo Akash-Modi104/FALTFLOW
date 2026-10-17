@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS homes (
   hash TEXT PRIMARY KEY,          -- hash of the household invitation key
   revision INTEGER NOT NULL,
   updated_at TEXT NOT NULL,
-  home TEXT NOT NULL,             -- household JSON, as in the Sheet's Household JSON column
+  home TEXT NOT NULL,             -- household JSON
   op TEXT NOT NULL DEFAULT ''     -- last write's operation id, for idempotent retries
 );
 CREATE TABLE IF NOT EXISTS accounts (
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 CREATE INDEX IF NOT EXISTS devices_home ON devices (home);
 CREATE TABLE IF NOT EXISTS settings (
-  name TEXT PRIMARY KEY,          -- VAPID_PRIVATE, VAPID_PUBLIC or GOOGLE_CLIENT_ID, copied by the migration
+  name TEXT PRIMARY KEY,          -- VAPID_PRIVATE, VAPID_PUBLIC or GOOGLE_CLIENT_ID, set once by the owner
   value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS invites (
