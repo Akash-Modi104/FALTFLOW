@@ -10,7 +10,7 @@ Add chores with daily, weekly, monthly or custom intervals, select participants 
 
 ## Shared expenses
 
-Expenses splits shared costs Splitwise-style. Log who paid, then split equally, by exact amounts or by shares (for example 2 : 1). Flatflow keeps a running balance per flatmate and suggests the fewest payments needed to settle up. Record a payment once money changes hands; payments happen outside the app. Amounts are stored as integer cents with each person's exact share, so balances never drift from rounding. Choose the household currency in Settings. A home keeps up to 100 expenses; once everyone is square, clear settled expenses to keep the household small. Flatmates with an open balance cannot be deleted until they settle up.
+Expenses splits shared costs Splitwise-style. Log who paid, then split equally, by exact amounts or by shares (for example 2 : 1). Flatflow keeps a running balance per flatmate and suggests the fewest payments needed to settle up. Record a payment once money changes hands; payments happen outside the app. Amounts are stored as integer cents with each person's exact share, so balances never drift from rounding. Choose the household currency in Settings. Moving from Splitwise? Export your group (Splitwise group → Settings → Export as spreadsheet) and use Expenses → Import from Splitwise: match each member to a flatmate, then import the full history or only the balances still owed. A home keeps up to 100 expenses; once everyone is square, clear settled expenses to keep the household small. Flatmates with an open balance cannot be deleted until they settle up.
 
 ## Phone notifications
 
