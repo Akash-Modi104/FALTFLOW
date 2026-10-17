@@ -80,7 +80,7 @@ export function removePerson(h,id){
 // share owed by every participant, so balances never drift from rounding.
 // Settlements are expenses of kind 'settle': the payer is owed back by the receiver.
 function validateExpenses(h,validDate){
-  validateBills(h,validDate);
+  validateBills(h,validDate);validateShopping(h);
   if(h.expenses===undefined)return;
   const fail=()=>{throw new Error('This is not a valid Flatflow backup. No data was changed.');};
   const validId=id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id),ids=new Set();
@@ -179,4 +179,10 @@ export function postDueBills(h,today=iso()){
     }
   }
   return changed;
+}
+// Shared shopping list; bought items can be logged together as one expense.
+function validateShopping(h){
+  if(h.shopping===undefined)return;
+  const ok=i=>i&&typeof i.id==='string'&&/^[\w-]{1,80}$/.test(i.id)&&typeof i.item==='string'&&i.item.trim()&&i.item.length<=80&&typeof i.addedBy==='string'&&i.addedBy.length<=80&&typeof i.done==='boolean';
+  if(!Array.isArray(h.shopping)||h.shopping.length>60||!h.shopping.every(ok)||new Set(h.shopping.map(i=>i.id)).size!==h.shopping.length)throw new Error('This is not a valid Flatflow backup. No data was changed.');
 }
