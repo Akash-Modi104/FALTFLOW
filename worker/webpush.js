@@ -8,7 +8,7 @@ const fromHex = h => Uint8Array.from(h.match(/../g),b=>parseInt(b,16));
 const concat = (...parts) => {const out=new Uint8Array(parts.reduce((n,p)=>n+p.length,0));let i=0;for(const p of parts){out.set(p,i);i+=p.length;}return out;};
 
 // VAPID_PRIVATE is the 32-byte scalar as hex, VAPID_PUBLIC the uncompressed point as base64url,
-// the same values the Apps Script backend uses, so existing subscriptions keep working.
+// as stored in the settings table.
 async function vapidKey(privateHex, publicB64) {
   const pub = fromB64url(publicB64);
   if (!/^[a-f0-9]{64}$/i.test(privateHex) || pub.length !== 65) throw new Error('Phone reminders are not configured yet.');

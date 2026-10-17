@@ -43,7 +43,7 @@ test('stale writes conflict and retried operations are idempotent',async()=>{
   assert.equal((await w.rpc({action:'write',key,home:bad,revision:2,op:randomUUID()})).home.people[0].emailVerified,undefined);
   bad.schema=2;await assert.rejects(w.rpc({action:'write',key,home:bad,revision:3,op:randomUUID()}),/not a valid/);
 });
-test('overdue turns roll over on read, like the Apps Script backend',async()=>{
+test('overdue turns roll over on read',async()=>{
   const w=setup(),h=demoHome();h.tasks[0].due=addDays(berlinDate(),-30);
   await w.rpc({action:'create',key,home:h,op:randomUUID()});
   const r=await w.rpc({action:'read',key});assert.equal(r.revision,2);assert.ok(r.home.history.some(e=>e.kind==='missed'));
@@ -115,27 +115,14 @@ test('accounts keep their homes across devices and sessions are hashed',async()=
   for(const [claims,error] of [[{aud:'other'},/sign-in failed/],[{email_verified:'false'},/Verify your Google email/]]){const x=setup({fetcher:googleToken(claims),env:{GOOGLE_CLIENT_ID:'client-123'}});await assert.rejects(x.rpc({action:'signIn',idToken:'a.b.c'}),error);}
 });
 
-test('migration copies Sheet rows and script properties, never replacing newer data',async()=>{
-  const w=setup(),h=demoHome(),homeHash=await hash(key),sub='1234567890',session='c'.repeat(64);
-  const properties={['account_'+await hash(sub)]:JSON.stringify({homes:[{key,person:h.people[0].id}],email:'asha@example.com',name:'Asha'}),
-    ['session_'+await hash(session)]:JSON.stringify({sub,exp:Date.now()+864e5}),
-    ['device_'+await hash('https://web.push.apple.com/d|'+homeHash)]:JSON.stringify({home:homeHash,person:h.people[0].id,endpoint:'https://web.push.apple.com/d',keys:null,sent:'',testAt:0}),
-    VAPID_PRIVATE:'never copied'};
-  await w.backend.migrate({homes:[{hash:homeHash,revision:5,updatedAt:'2026-10-17T10:00:00Z',home:JSON.stringify(h),op:'x'}],properties});
-  assert.equal((await w.rpc({action:'read',key})).revision,5);
-  const older=structuredClone(h);older.name='Old copy';
-  await w.backend.migrate({homes:[{hash:homeHash,revision:4,home:JSON.stringify(older)}]});
-  assert.equal((await w.rpc({action:'read',key})).home.name,h.name);
-  assert.equal((await w.rpc({action:'myHomes',session})).homes[0].key,key);
-  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM devices').get().n,1);
-  assert.ok(!JSON.stringify(w.db.sqlite.prepare('SELECT * FROM accounts').all()).includes('never copied'));
-  await assert.rejects(w.backend.migrate({settings:{OTHER:'x'}}),/Invalid setting/);
-  await w.backend.migrate({settings:{...vapid,GOOGLE_CLIENT_ID:'client-123'}});
+test('push keys and the client ID come from the settings table unless a secret overrides them',async()=>{
+  const w=setup();
+  for(const [name,value] of Object.entries({...vapid,GOOGLE_CLIENT_ID:'client-123'}))w.db.sqlite.prepare('INSERT INTO settings (name, value) VALUES (?, ?)').run(name,value);
   const env=await withSettings({DB:w.db,GOOGLE_CLIENT_ID:'from-secret'},0);
   assert.equal(env.VAPID_PRIVATE,vapid.VAPID_PRIVATE);assert.equal(env.GOOGLE_CLIENT_ID,'from-secret');
 });
 
-test('HTTP layer only answers Flatflow origins and hides the migration endpoint',async()=>{
+test('HTTP layer only answers Flatflow origins',async()=>{
   const db=d1(),env={DB:db},ctx={waitUntil(){}};
   const post=(path,body,headers={})=>worker.fetch(new Request('https://flatflow.example.workers.dev'+path,{method:'POST',body:JSON.stringify(body),headers}),env,ctx);
   assert.equal((await post('/rpc',{action:'authConfig'},{Origin:'https://evil.test'})).status,403);
@@ -144,10 +131,6 @@ test('HTTP layer only answers Flatflow origins and hides the migration endpoint'
   const ok=await post('/rpc',{action:'authConfig'},{Origin:'https://akash-modi104.github.io'});
   assert.equal(ok.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');assert.deepEqual(await ok.json(),{enabled:false,clientId:''});
   const bad=await post('/rpc',{action:'read',key:'x'},{Origin:'https://akash-modi104.github.io'});assert.equal(bad.status,400);assert.match((await bad.json()).error,/Invalid household/);
-  assert.equal((await post('/migrate',{homes:[]},{Authorization:'Bearer x'})).status,404);
-  env.MIGRATION_TOKEN='secret-token';
-  assert.equal((await post('/migrate',{homes:[]},{Authorization:'Bearer wrong-token'})).status,404);
-  assert.equal((await post('/migrate',{homes:[]},{Authorization:'Bearer secret-token'})).status,200);
 });
 
 test('with sign-in on, every home action needs a session and links the home to the account',async()=>{

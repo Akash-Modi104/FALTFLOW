@@ -188,7 +188,7 @@ export function clearSettledExpenses(h){
 }
 // When the expense list is full, the 30 oldest expenses are folded into a few
 // "Earlier balances" entries with the same net effect, so balances stay exact.
-// Also runs when the home nears the size a Google Sheets cell can hold.
+// Also runs when the home nears the size limit for one home.
 function compactExpenses(h){
   while(h.expenses.length>30&&(h.expenses.length>=100||JSON.stringify(h).length>34000))foldOldest(h);
 }

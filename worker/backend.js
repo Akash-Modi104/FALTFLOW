@@ -1,6 +1,5 @@
 // Flatflow backend for Cloudflare Workers + D1, on the free plan.
-// Same RPC actions and responses as the Apps Script backend, so the app works
-// with either. Invitation keys, session tokens and Google account ids are only
+// Invitation keys, session tokens and Google account ids are only
 // ever stored as SHA-256 hashes.
 import {validateHome, rollOver, away, assignee} from '../public/core.js';
 import {vapidSigner, sendPush, pushEndpoint} from './webpush.js';
@@ -19,7 +18,7 @@ const token = () => [...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toS
 const validKey = k => typeof k==='string' && /^[a-f0-9]{64}$/.test(k);
 const fail = message => {const e = new Error(message);e.expose = true;throw e;};
 
-// Values copied from the Apps Script project by the migration. Worker secrets
+// Push keys and the Google client ID kept in the settings table. Worker secrets
 // with the same names take precedence.
 export const SETTINGS = ['VAPID_PRIVATE','VAPID_PUBLIC','GOOGLE_CLIENT_ID'];
 let cachedSettings = null;
@@ -275,34 +274,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     return pushed;
   }
 
-  // One-time copy from the Apps Script backend, enabled only while the owner has set
-  // MIGRATION_TOKEN. Rows can be sent again: a home is replaced only by the same or a
-  // newer revision, so re-running right before switching over is safe.
-  async function migrate(body) {
-    const statements = [];
-    for (const row of body.homes || []) {
-      if (!/^[a-f0-9]{64}$/.test(row.hash) || !Number.isInteger(row.revision)) fail('Invalid home row.');
-      JSON.parse(row.home);
-      statements.push(db.prepare('INSERT INTO homes (hash, revision, updated_at, home, op) VALUES (?, ?, ?, ?, ?) ON CONFLICT(hash) DO UPDATE SET revision = excluded.revision, updated_at = excluded.updated_at, home = excluded.home, op = excluded.op WHERE excluded.revision >= homes.revision')
-        .bind(row.hash, row.revision, String(row.updatedAt || new Date().toISOString()), row.home, String(row.op || '')));
-    }
-    for (const [name, raw] of Object.entries(body.properties || {})) {
-      const [, kind, id] = name.match(/^(account|session|device)_([a-f0-9]{64})$/) || [];
-      if (!kind) continue;
-      const v = JSON.parse(raw);
-      if (kind === 'account') statements.push(db.prepare('INSERT OR REPLACE INTO accounts (id, data) VALUES (?, ?)').bind(id, JSON.stringify({homes:v.homes || [], email:v.email || '', name:v.name || ''})));
-      if (kind === 'session' && v.exp > Date.now()) statements.push(db.prepare('INSERT OR REPLACE INTO sessions (id, sub, exp) VALUES (?, ?, ?)').bind(id, String(v.sub), v.exp));
-      if (kind === 'device') statements.push(db.prepare('INSERT OR REPLACE INTO devices (id, home, person, endpoint, keys, sent, test_at) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id, String(v.home), String(v.person), pushEndpoint(v.endpoint), v.keys ? JSON.stringify(v.keys) : null, String(v.sent || ''), Number(v.testAt) || 0));
-    }
-    for (const [name, value] of Object.entries(body.settings || {})) {
-      if (!SETTINGS.includes(name) || typeof value !== 'string' || value.length > 512) fail('Invalid setting.');
-      statements.push(db.prepare('INSERT OR REPLACE INTO settings (name, value) VALUES (?, ?)').bind(name, value));
-    }
-    if (statements.length) await db.batch(statements);
-    return {ok:true, imported:statements.length};
-  }
-
-  return {rpc, daily, migrate};
+  return {rpc, daily};
 }
 
 // Browser subscription keys let the server send an end-to-end encrypted message.

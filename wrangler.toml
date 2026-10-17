@@ -16,6 +16,5 @@ database_id = "c761aa3f-a05b-4dc0-b82a-ce1e91789faa"
 # (so it is right in both summer and winter time), a small batch per run.
 crons = ["*/5 7,8 * * *"]
 
-# Secret, set with `npx wrangler@4.151.1 secret put MIGRATION_TOKEN` only while copying
-# data from the Sheet, then deleted. The migration also copies VAPID_PRIVATE,
-# VAPID_PUBLIC and GOOGLE_CLIENT_ID into D1; secrets with those names would override them.
+# The settings table holds VAPID_PRIVATE, VAPID_PUBLIC and GOOGLE_CLIENT_ID; Worker secrets
+# with those names override them.
