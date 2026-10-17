@@ -1,9 +1,9 @@
-import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=15';
-import {postDueBills,splitAmount,expenseBalances,settlements,addExpense,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,nextDue,away,assignee,advance,emptyHome,demoHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=15';
-import {createSync} from './sync.js?v=15';
-import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=15';
-import {BACKEND_URL} from './config.js?v=15';
-import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=15';
+import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=16';
+import {postDueBills,splitAmount,expenseBalances,settlements,addExpense,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,nextDue,away,assignee,advance,emptyHome,demoHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=16';
+import {createSync} from './sync.js?v=16';
+import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=16';
+import {BACKEND_URL} from './config.js?v=16';
+import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=16';
 
 const icons={home:'<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',check:'<path d="m5 12 4 4 10-10"/>',tasks:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h6"/>',calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',people:'<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 5"/>',settings:'<path d="m9 3 1 3h4l1-3 4 3-2 3 2 3 2 1-2 5-3-1-3 2-1 3H8l-1-3-3-2-2-3 3-2 1-3-2-3Z"/><circle cx="12" cy="12" r="3"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',repeat:'<path d="M4 8h14l-3-3M20 16H6l3 3M20 8v4M4 16v-4"/>',plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="M5 12h14m-5-5 5 5-5 5"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',bell:'<path d="M5 17h14l-2-4V8a5 5 0 0 0-10 0v5Zm5 3h4"/>',leaf:'<path d="M5 18C1 6 12 3 21 3c0 12-6 17-13 14M5 21 16 9"/>',share:'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m9 10 6-4m-6 8 6 4"/>',download:'<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4M18 4h4"/>',history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l4 2"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',wallet:'<path d="M4 7h15a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a2 2 0 0 1 2-2h11v3"/><path d="M16 13.5h.01"/>'};
 const I=n=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[n]||icons.home}</svg>`;
@@ -167,16 +167,26 @@ function splitwiseDialog(data){
   });
 }
 // ---- Personal accounts (Google sign-in) ----
-// Signing in is optional. An account remembers your shared homes and who you
-// are in each, so they appear on every device you sign in on. Invitation links
-// keep working for flatmates who don't sign in.
+// Signing in is required once the backend has Google sign-in configured. An
+// account remembers your shared homes and who you are in each, so they appear
+// on every device you sign in on. Invitation links and codes join the home to
+// the account that opens them.
 function saveAccount(){try{if(account)localStorage.setItem('flatflow-account',JSON.stringify(account));else localStorage.removeItem('flatflow-account');}catch{}}
-function accountExpired(err){if(!/sign-in has expired/.test(err?.message||''))return false;account=null;linked={};saveAccount();render();toast('Your sign-in expired. Sign in again to sync your homes.',true);return true;}
+function accountExpired(err){if(!/sign-in has expired|Sign in to continue/.test(err?.message||''))return false;account=null;linked={};saveAccount();render();toast('Please sign in again.',true);return true;}
+// Until someone signs in, the app shows only the sign-in screen. If the backend has no sign-in configured, it works as before.
+const gated=()=>!account&&authInfo?.enabled!==false;
 async function loadAuthConfig(){
-  if(authInfo||!backend)return;
+  if(authInfo&&!authInfo.error)return;
+  if(!backend){authInfo={enabled:false,clientId:''};return afterAuth();}
   try{await connectClient();const r=await client.call({action:'authConfig'});authInfo={enabled:!!r.enabled&&!!r.clientId,clientId:r.clientId||''};}
-  catch{authInfo={enabled:false,clientId:''};} // Older backends don't support accounts yet.
-  render();if(account&&authInfo.enabled)syncAccount();
+  catch(err){authInfo=/Unsupported/.test(err.message)?{enabled:false,clientId:''}:{enabled:null,error:true};} // Older backends don't support accounts.
+  render();if(account&&authInfo.enabled)syncAccount();afterAuth();
+}
+// Opens a pending invitation, or syncs the open home, once nothing waits on sign-in.
+function afterAuth(){
+  if(gated())return;
+  if(new URLSearchParams(location.hash.slice(1)).has('home'))handleInvitation();
+  else if(mode==='shared'){syncState='Connecting…';render();refresh(true);}
 }
 let googleLoading=null;
 function loadGoogle(){return googleLoading||=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.onload=()=>resolve(window.google);s.onerror=()=>{googleLoading=null;reject(new Error('Google sign-in could not load. Check your connection.'));};document.head.append(s);});}
@@ -190,6 +200,7 @@ async function onGoogleCredential(response){
   try{await connectClient();r=await client.call({action:'signIn',idToken:response.credential});account={session:r.session,name:r.account.name,email:r.account.email};linked={};saveAccount();}
   catch(err){toast(err.message,true);return;}finally{setBusy(false);render();}
   try{await applyAccount(r,true);toast(`Signed in as ${account.name||account.email}.`);}catch(err){toast(err.message,true);}
+  afterAuth();
 }
 // Merges the account's homes into this device, and this device's shared homes into the account.
 async function applyAccount(r,upload=false){
@@ -203,7 +214,7 @@ async function applyAccount(r,upload=false){
   }
   if(mode==='shared'&&server.get(key)?.person&&!myId){myId=server.get(key).person;persist();}
   if(upload)for(const e of local.filter(e=>!server.has(e.key))){try{await client.call({action:'linkHome',session:account.session,key:e.key,person:e.myId||''});linked[e.key]=e.myId||'';}catch{}}
-  if(mode==='welcome'&&r.homes.length)switchHome('shared:'+r.homes[0].key);else render();
+  if(mode==='welcome'&&r.homes.length&&!new URLSearchParams(location.hash.slice(1)).has('home'))switchHome('shared:'+r.homes[0].key);else render();
 }
 async function syncAccount(){if(!account)return;try{await connectClient();await applyAccount(await client.call({action:'myHomes',session:account.session}),true);}catch(err){accountExpired(err);}}
 function linkCurrent(){
@@ -214,7 +225,7 @@ function linkCurrent(){
 async function signOut(){
   if(!account)return;const session=account.session;account=null;linked={};saveAccount();
   try{window.google?.accounts.id.disableAutoSelect();await connectClient();await client.call({action:'signOut',session});}catch{}
-  render();toast('Signed out. Your homes stay on this device.');
+  client?.close();client=null;render();toast('Signed out. Sign in again to open your homes.');
 }
 function accountPanel(){
   if(!authInfo)return `<section class="panel"><h2>Your account</h2><p>Checking whether sign-in is available…</p></section>`;
@@ -222,7 +233,13 @@ function accountPanel(){
   if(account)return `<section class="panel"><h2>Your account</h2><p>Signed in as <b>${esc(account.name||account.email)}</b>${account.name&&account.email?` · ${esc(account.email)}`:''}. Your homes and your name in each follow you to any device you sign in on.</p><div class="buttons"><button class="btn secondary small" data-action="homes">${I('home')}Your homes</button><button class="text-btn" data-action="signOut">Sign out</button></div></section>`;
   return `<section class="panel"><h2>Your account</h2><p>Sign in so all your homes, and who you are in each, appear on every phone and computer you use. Flatmates can still join with an invitation link without signing in.</p><div id="google-signin"></div></section>`;
 }
+function signInGate(){
+  const invitedKey=new URLSearchParams(location.hash.slice(1)).get('home'),invited=!!invitedKey&&invitedKey!==key;
+  $('#app').innerHTML=`<main class="main gate"><div class="brand">${I('home')}flatflow<span>.</span></div><section class="panel gate-card">${heroArt}<p class="eyebrow">${invited?'You’re invited':'Welcome home'}</p><h1>Sign in to Flatflow</h1><p class="subhead">${invited?'Your flatmates invited you to their home. Sign in with Google and you’ll join it straight after.':'Your homes, chores and shared costs stay private to the people in them. Sign in with Google to continue.'}</p>${authInfo?.error?`<p class="notice">Flatflow can’t reach its server. Check your connection and try again.</p><button class="btn" data-action="retryAuth">Try again</button>`:authInfo?'<div id="google-signin" class="gate-button"></div>':'<p class="activity-empty">Getting things ready…</p>'}<p class="gate-note">Flatflow only sees your name and email address. It never sees your Google password.</p></section></main>`;
+  showGoogleButton();
+}
 function render(){
+  if(gated()){signInGate();return;}
   if(mode==='welcome'){
     $('#app').innerHTML=`<main class="main"><div class="brand">${I('home')}flatflow.</div>${title('Welcome home','Your flat. Your shared routine.','Already invited? Enter the invite code or open the link your flatmate sent you.')}<section class="panel"><h2>Join your flatmates</h2><p>Your shared household is saved online. On a new browser or after clearing browser data, join again with a code or link, or sign in.</p><div class="buttons"><button class="btn" data-action="joinLink">Join with a code or link</button><button class="btn secondary" data-action="newHome">Create a new household</button></div></section>${authInfo?.enabled&&!account?`<section class="panel" style="margin-top:20px"><h2>Already have an account?</h2><p>Sign in to open every home you belong to, on any device.</p><div id="google-signin"></div></section>`:''}${listHomes(localStorage).length?`<section class="panel" style="margin-top:20px"><h2>Your homes on this device</h2>${homeList()}</section>`:''}</main>`;showGoogleButton();return;
   }
@@ -240,10 +257,13 @@ function dialog(title,description,body,submitLabel,onSubmit){
   const el=$('#modal');if(el.open)el.close();el.innerHTML=`<div class="dialog-top"><h2 id="modal-title">${title}</h2><button class="close" data-action="close" aria-label="Close dialog">${I('close')}</button></div><p class="dialog-description">${description}</p><form id="dialog-form">${body}${submitLabel?`<div class="dialog-actions"><button type="button" class="btn secondary" data-action="close">Cancel</button><button type="submit" class="btn" data-mutate>${submitLabel}</button></div>`:''}</form>`;el.showModal();
   $('#dialog-form').addEventListener('submit',async e=>{e.preventDefault();if(busy)return;try{await onSubmit(new FormData(e.target),e.target);}catch(err){toast(err.message,true);}});
 }
-async function connectClient(){if(!backend)throw new Error('Connect the Google Sheets backend in Settings first.');if(client?.url===backend){await client.ready;return;}client?.close();client=createSync(backend);await client.ready;}
-async function refresh(force=false){if(mode!=='shared'||busy||refreshing||(!force&&document.visibilityState==='hidden'))return;refreshing=true;const requestedKey=key,requestedRevision=revision;try{if(!client)await connectClient();const r=await client.call({action:'read',key,revision:force?-1:revision});if(key!==requestedKey||busy||revision!==requestedRevision)return;if(r.home){home=validateHome(r.home);revision=r.revision;if(!home.people.some(p=>p.id===myId))myId='';persist();}const changed=syncState!=='Synced with Google Sheets'||!!r.home;syncState='Synced with Google Sheets';if(changed)render();sharePushKeys();if((home.bills||[]).some(b=>!b.paused&&b.due<=iso()))setTimeout(()=>mutate(()=>{},'Recurring bills added'),0);notifyDue();}catch(err){syncState=navigator.onLine?'Connection needs attention':'Offline';client?.close();client=null;render();}finally{refreshing=false;}}
+async function connectClient(){if(!backend)throw new Error('Connect the Google Sheets backend in Settings first.');if(client?.url===backend){await client.ready;return;}client?.close();client=createSync(backend);
+  // Every request carries the sign-in session; the backend refuses home actions without one.
+  const call=client.call.bind(client);client.call=p=>call(account?.session&&!p.session?{...p,session:account.session}:p).catch(err=>{if(p.action!=='signOut')accountExpired(err);throw err;});
+  await client.ready;}
+async function refresh(force=false){if(mode!=='shared'||gated()||busy||refreshing||(!force&&document.visibilityState==='hidden'))return;refreshing=true;const requestedKey=key,requestedRevision=revision;try{if(!client)await connectClient();const r=await client.call({action:'read',key,revision:force?-1:revision});if(key!==requestedKey||busy||revision!==requestedRevision)return;if(r.home){home=validateHome(r.home);revision=r.revision;if(!home.people.some(p=>p.id===myId))myId='';persist();}const changed=syncState!=='Synced with Google Sheets'||!!r.home;syncState='Synced with Google Sheets';if(changed)render();sharePushKeys();if((home.bills||[]).some(b=>!b.paused&&b.due<=iso()))setTimeout(()=>mutate(()=>{},'Recurring bills added'),0);notifyDue();}catch(err){syncState=navigator.onLine?'Connection needs attention':'Offline';client?.close();client=null;render();}finally{refreshing=false;}}
 async function mutate(fn,message='Changes saved'){
-  if(busy)return false;if(mode==='shared'&&syncState!=='Synced with Google Sheets'){toast('Reconnect to your household before editing.',true);return false;}setBusy(true);const draft=structuredClone(home);
+  if(busy)return false;if(gated()){render();return false;}if(mode==='shared'&&syncState!=='Synced with Google Sheets'){toast('Reconnect to your household before editing.',true);return false;}setBusy(true);const draft=structuredClone(home);
   try{rollOver(draft);fn(draft);validateHome(draft);if(mode==='shared'){
     if(!navigator.onLine)throw new Error('You’re offline. Reconnect to save a shared change.');
     if(!client)await connectClient();syncState='Saving…';
@@ -329,7 +349,7 @@ async function handleInvitation(confirmed=false){
  if(confirmed)return join();
  dialog('Your flatmates saved you a place.','Join the shared household to see the same chores and updates.', `<p class="info-box">Choose your name after joining. Keep this invitation to reopen your home in another browser or installed app.${mode!=='welcome'?` ${esc(home.name)} stays in your homes list, so you can switch back any time.`:''}</p>`, 'Join this home',join);
 }
-const actions={theme:setTheme,inviteCode,copyCode:async code=>{try{await navigator.clipboard.writeText(code);toast('Code copied.');}catch{toast('Code: '+code);}},joinLink,signOut,homes:homesDialog,switchHome,forgetHome:forgetHomeDialog,
+const actions={retryAuth:()=>{authInfo=null;render();loadAuthConfig();},theme:setTheme,inviteCode,copyCode:async code=>{try{await navigator.clipboard.writeText(code);toast('Code copied.');}catch{toast('Code: '+code);}},joinLink,signOut,homes:homesDialog,switchHome,forgetHome:forgetHomeDialog,
 
   chooseMe:()=>{view='settings';render();$('#my-person')?.focus();},
   deletePerson:id=>{const p=home.people.find(p=>p.id===id);if(!p)return;dialog('Delete '+esc(p.name)+'?', 'They will be removed from the household and chore rotations. Past activity stays. Export a backup first if you want to restore them later.', '<button class="btn secondary small" type="button" data-action="export">Export backup</button>', 'Delete flatmate', async()=>{if(await mutate(h=>removePerson(h,id),'Flatmate deleted')){if(myId===id){myId='';persist();}$('#modal').close();render();}});},
@@ -364,8 +384,6 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 window.addEventListener('storage',e=>{if(e.key===STORAGE&&!busy){try{const saved=JSON.parse(e.newValue);if(saved&&saved.home.id===home.id&&saved.key===key&&saved.revision>=revision){home=validateHome(saved.home);revision=saved.revision;myId=saved.myId||'';render();}}catch{}}});
 if('serviceWorker'in navigator)navigator.serviceWorker.register('./sw.js').then(r=>{registration=r;notifyDue();}).catch(()=>{});
 if(mode!=='shared')rollOver(home);render();persist();
-setTimeout(loadAuthConfig,1500);
-if(new URLSearchParams(location.hash.slice(1)).has('home'))handleInvitation();
-else if(mode==='shared'){syncState='Connecting…';render();refresh(true);}
-window.addEventListener('hashchange',()=>handleInvitation());
+loadAuthConfig();
+window.addEventListener('hashchange',()=>{if(gated())render();else handleInvitation();});
 setInterval(()=>{refresh();if(mode!=='shared'){if(rollOver(home)){persist();render();}notifyDue();}},30000);

@@ -55,6 +55,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
 
   async function rpc(request) {
     if (request && ACCOUNT_ACTIONS.includes(request.action)) return accountOperation(request);
+    const member = await requireMember(request);
     if (request && request.action === 'redeemInvite') return redeemInvite(request);
     if (!request || !validKey(request.key)) fail('Invalid household invitation.');
     const h = await hash(request.key);
@@ -67,10 +68,12 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
       request.home.people.forEach(p=>{delete p.email;delete p.emailVerified;});
       const entry = {hash:h, revision:1, home:request.home};
       await db.prepare('INSERT OR IGNORE INTO homes (hash, revision, updated_at, home, op) VALUES (?, 1, ?, ?, ?)').bind(h, new Date().toISOString(), JSON.stringify(entry.home), String(request.op || '')).run();
+      await linkMember(member, request.key);
       return publicResult(await readHome(h));
     }
     let entry = await readHome(h);
     if (!entry) fail('Household not found. Ask your flatmate for the invitation link.');
+    await linkMember(member, request.key);
     entry = await rolledOver(entry);
     if (request.action === 'createInvite') return createInvite(request, entry);
     if (request.action === 'read') return Number(request.revision) === entry.revision ? {ok:true, unchanged:true, revision:entry.revision} : publicResult(entry);
@@ -89,6 +92,24 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     }
     if (PUSH_ACTIONS.includes(request.action)) return pushOperation(request, entry);
     fail('Unsupported operation.');
+  }
+
+  // Once Google sign-in is configured, every home action needs a signed-in
+  // account. Opening a home with its key (link, code or a device that already
+  // had it) adds the home to that account.
+  async function requireMember(request) {
+    if (!env.GOOGLE_CLIENT_ID) return null;
+    const session = validKey(String(request?.session || '')) ? await db.prepare('SELECT sub, exp FROM sessions WHERE id = ?').bind(await hash(request.session)).first() : null;
+    if (!session || session.exp < Date.now()) fail('Sign in to continue.');
+    const id = await hash(session.sub), account = await readAccount(id);
+    if (!account) fail('Sign in to continue.');
+    return {id, account};
+  }
+  async function linkMember(member, key) {
+    if (!member || member.account.homes.some(x=>x.key===key)) return;
+    if (member.account.homes.length >= 20) fail('An account can belong to up to 20 homes. Leave one first.');
+    member.account.homes.push({key, person:''});
+    await saveAccount(member.id, member.account);
   }
 
   // Short invite codes. The app encrypts the household key with the code before

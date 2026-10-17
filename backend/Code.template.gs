@@ -28,6 +28,7 @@ function publicResult_(entry){return {ok:true,revision:entry.revision,home:entry
 // The sole remotely callable data function. Private helpers end in underscore.
 function rpc(request) {
   if(request&&ACCOUNT_ACTIONS.indexOf(request.action)>=0)return accountOperation_(request);
+  const member=requireMember_(request);
   if(request&&request.action==='redeemInvite')return redeemInvite_(request);
   if(!request||!request.key||!/^[a-f0-9]{64}$/.test(request.key))throw new Error('Invalid household invitation.');
   const lock=LockService.getScriptLock();lock.waitLock(15000);
@@ -42,9 +43,10 @@ function rpc(request) {
       validateHome_(request.home);
       const entry={hash:hash,revision:1,home:request.home};
       entry.home.people.forEach(p=>{delete p.email;delete p.emailVerified;});
-      saveRow_(s,last+1,entry,request.op);return publicResult_(entry);
+      saveRow_(s,last+1,entry,request.op);linkMember_(member,request.key);return publicResult_(entry);
     }
     if(index<0)throw new Error('Household not found. Ask your flatmate for the invitation link.');
+    linkMember_(member,request.key);
     const entry=readRow_(s,row);
     if(rollOver_(entry.home,Utilities.formatDate(new Date(),'Europe/Berlin','yyyy-MM-dd'))){entry.revision++;saveRow_(s,row,entry,'rollover-'+Utilities.getUuid());}
     if(request.action==='createInvite')return createInvite_(request,entry);

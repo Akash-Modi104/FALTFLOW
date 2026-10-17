@@ -103,8 +103,9 @@ test('accounts keep their homes across devices and sessions are hashed',async()=
   const off=setup({fetcher:googleToken()});assert.deepEqual(await off.rpc({action:'authConfig'}),{enabled:false,clientId:''});
   await assert.rejects(off.rpc({action:'signIn',idToken:'a.b.c'}),/not set up/);
   const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123'}}),h=demoHome(),other=demoHome();
-  await w.rpc({action:'create',key,home:h,op:randomUUID()});await w.rpc({action:'create',key:key2,home:other,op:randomUUID()});
   const phone=await w.rpc({action:'signIn',idToken:'a.b.c'});assert.match(phone.session,/^[a-f0-9]{64}$/);
+  await assert.rejects(w.rpc({action:'create',key,home:h,op:randomUUID()}),/Sign in to continue/);
+  await w.rpc({action:'create',key,home:h,op:randomUUID(),session:phone.session});await w.rpc({action:'create',key:key2,home:other,op:randomUUID(),session:phone.session});
   await w.rpc({action:'linkHome',session:phone.session,key,person:h.people[0].id});await w.rpc({action:'linkHome',session:phone.session,key:key2});
   await assert.rejects(w.rpc({action:'linkHome',session:phone.session,key,person:'stranger'}),/Choose your name/);
   const laptop=await w.rpc({action:'signIn',idToken:'a.b.c'});
@@ -147,4 +148,14 @@ test('HTTP layer only answers Flatflow origins and hides the migration endpoint'
   env.MIGRATION_TOKEN='secret-token';
   assert.equal((await post('/migrate',{homes:[]},{Authorization:'Bearer wrong-token'})).status,404);
   assert.equal((await post('/migrate',{homes:[]},{Authorization:'Bearer secret-token'})).status,200);
+});
+
+test('with sign-in on, every home action needs a session and links the home to the account',async()=>{
+  const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123'}}),h=demoHome();
+  const owner=await w.rpc({action:'signIn',idToken:'a.b.c'});await w.rpc({action:'create',key,home:h,op:randomUUID(),session:owner.session});
+  for(const r of [{action:'read',key},{action:'write',key,home:h,revision:1,op:randomUUID()},{action:'subscribePush',key,person:h.people[0].id,endpoint:'https://web.push.apple.com/x'},{action:'redeemInvite',invite:'e'.repeat(64)},{action:'read',key,session:'f'.repeat(64)}])await assert.rejects(w.rpc(r),/Sign in to continue/);
+  const friend=await w.rpc({action:'signIn',idToken:'a.b.c'});await w.rpc({action:'signOut',session:owner.session});
+  assert.equal((await w.rpc({action:'read',key,session:friend.session})).home.name,h.name);
+  assert.equal((await w.rpc({action:'myHomes',session:friend.session})).homes.length,1);
+  await assert.rejects(w.rpc({action:'read',key,session:owner.session}),/Sign in to continue/);
 });

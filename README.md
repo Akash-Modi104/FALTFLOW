@@ -18,7 +18,7 @@ Expenses splits shared costs Splitwise-style. Log who paid, then split equally, 
 
 ## Personal sign-in
 
-Flatmates can optionally sign in with Google (Settings → Your account, or the welcome screen on a new device). An account remembers every shared home the person belongs to and who they are in each, so their homes appear on any phone or computer they sign in on. Invitation links keep working for anyone who doesn't sign in. Accounts and sessions are stored in private Apps Script properties; Flatflow never sees Google passwords, and only verified Google emails can sign in.
+Sign-in with Google is required once `GOOGLE_CLIENT_ID` is set on the backend: until someone signs in, the app shows only the sign-in screen, and the backend refuses every home action (read, write, create, notifications, invite codes) without a valid session. Opening a home with its invitation link, invite code or a device that already had it adds the home to the signed-in account, so flatmates who joined by link before sign-in existed just sign in once and keep everything. An account remembers every home the person belongs to and who they are in each, so their homes appear on any phone or computer they sign in on. Accounts and sessions are stored privately on the backend (only hashes of Google ids and session tokens); Flatflow never sees Google passwords, and only verified Google emails can sign in. Without `GOOGLE_CLIENT_ID` the app works with invitation links alone, as before.
 
 To switch it on (owner, once):
 1. In Google Cloud Console → APIs & Services → OAuth consent screen, create an External app with your contact email, then publish it. Only the basic `openid`, `email` and `profile` scopes are used, so Google verification isn't needed.
