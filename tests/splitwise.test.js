@@ -32,6 +32,11 @@ test('balances-only import keeps just what is still owed',()=>{
 });
 test('unmapped members with money involved and non-Splitwise files are rejected',()=>{
   const h=demoHome(),[a,j]=h.people.map(p=>p.id);
-  assert.throws(()=>splitwiseExpenses(readSplitwise(csv),{Alex:a,Jamie:j},'EUR'),/Choose a flatmate for Sam/);
+  assert.throws(()=>splitwiseExpenses(readSplitwise(csv),{Alex:a,Jamie:j},'EUR'),/Sam is part of some expenses/);
+  // Balances only can leave out anyone who ends up square, even if they were in old expenses.
+  const square='Date,Description,Category,Cost,Currency,Alex,Jamie,Sam\n2026-01-01,Pizza,Food,30.00,EUR,20.00,-10.00,-10.00\n2026-01-02,Sam paid Alex,Payment,10.00,EUR,-10.00,0.00,10.00\n';
+  const {expenses}=splitwiseExpenses(readSplitwise(square),{Alex:a,Jamie:j},'EUR','balances');
+  assert.deepEqual(expenses.map(e=>[e.paidBy,e.amount,e.shares]),[[a,1000,{[j]:1000}]]);
+  assert.throws(()=>splitwiseExpenses(readSplitwise(csv),{Alex:a,Jamie:j},'EUR','balances'),/Sam still owes or is owed/);
   assert.throws(()=>readSplitwise('name,amount\nx,1'),/Splitwise group export/);
 });
