@@ -1,4 +1,4 @@
-import {uid,iso,record} from './core.js?v=20';
+import {uid,iso,record,compactExpenses,MAX_EXPENSES} from './core.js?v=21';
 // Reads the CSV that Splitwise exports per group: Date, Description, Category,
 // Cost, Currency, then one column per member holding that member's net change
 // for the row (positive for whoever paid, negative for whoever owes).
@@ -78,7 +78,9 @@ export function splitwiseExpenses(data,mapping,currency,mode='history'){
 export function importSplitwise(h,expenses,newPeople=[]){
   for(const p of newPeople){if(h.people.length>=30)throw new Error('This home supports up to 30 flatmates.');h.people.push(p);}
   const list=[...expenses.slice().sort((a,b)=>b.spentOn.localeCompare(a.spentOn)),...(h.expenses||[])];
-  if(list.length>100)throw new Error(`That’s ${expenses.length} expenses, more than this home can keep (100 in total). Import balances only instead.`);
   h.expenses=list;
-  record(h,'expense',`Imported ${expenses.length} expense${expenses.length===1?'':'s'} from Splitwise`);
+  // Very long histories keep their newest expenses; older ones become a few
+  // "Earlier balances" entries with exactly the same effect on balances.
+  const before=h.expenses.length;compactExpenses(h);
+  record(h,'expense',`Imported ${expenses.length} expense${expenses.length===1?'':'s'} from Splitwise${h.expenses.length<before?`; the oldest were combined into earlier balances`:''}`);
 }
