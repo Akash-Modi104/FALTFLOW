@@ -230,11 +230,12 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     const known = new Set((before.expenses || []).map(e=>e.id));
     const added = (after.expenses || []).filter(e=>!known.has(e.id) && e.title !== 'Earlier balances');
     if (!added.length || !pushConfig().enabled) return;
-    const name = id => (after.people.find(p=>p.id===id) || {}).name || 'A flatmate', cur = after.currency || 'EUR', money = c => cur + ' ' + (c/100).toFixed(2);
+    const name = id => (after.people.find(p=>p.id===id) || {}).name || 'A flatmate', money = (e, c) => (e.currency || after.currency || 'EUR') + ' ' + (c/100).toFixed(2);
     const messages = {};
     for (const e of added) for (const id of Object.keys(e.shares)) {
-      if (id === e.paidBy || !e.shares[id]) continue;
-      (messages[id] ||= []).push(e.kind === 'settle' ? name(e.paidBy) + ' paid you ' + money(e.amount) : name(e.paidBy) + ' added ' + e.title + ' · your share ' + money(e.shares[id]));
+      // Co-payers who covered their own share have nothing to hear about.
+      if (id === e.paidBy || !e.shares[id] || (e.payers && (e.payers[id] || 0) >= e.shares[id])) continue;
+      (messages[id] ||= []).push(e.kind === 'settle' ? name(e.paidBy) + ' paid you ' + money(e, e.amount) : name(e.paidBy) + ' added ' + e.title + ' · your share ' + money(e, e.shares[id]));
     }
     const {results} = await db.prepare('SELECT * FROM devices WHERE home = ? AND keys IS NOT NULL').bind(homeHash).all();
     const sign = vapidSigner(env);let sent = 0;

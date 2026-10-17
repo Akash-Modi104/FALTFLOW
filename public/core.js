@@ -71,7 +71,7 @@ export function removePerson(h,id){
   const person=h.people.find(p=>p.id===id);if(!person)throw new Error('This flatmate no longer exists.');
   const solo=h.tasks.filter(t=>t.order.length===1&&t.order[0]===id);
   if(solo.length)throw new Error('Reassign these chores before deleting this flatmate: '+solo.map(t=>t.title).join(', '));
-  if(expenseBalances(h)[id])throw new Error('Settle up with '+person.name+' before deleting them.');
+  if(currenciesInUse(h).some(c=>expenseBalances(h,c)[id]))throw new Error('Settle up with '+person.name+' before deleting them.');
   for(const t of h.tasks){if(!t.order.includes(id))continue;const current=assignee(t,h.people)?.id;const next=t.order[(t.order.indexOf(id)+1)%t.order.length];t.order=t.order.filter(x=>x!==id);t.turn=Math.max(0,t.order.indexOf(current&&current!==id?current:next));}
   h.people=h.people.filter(p=>p.id!==id);record(h,'person',person.name+' left the home');
 }
@@ -79,16 +79,24 @@ export function removePerson(h,id){
 // Shared expenses. Amounts are integer cents; each expense stores the exact
 // share owed by every participant, so balances never drift from rounding.
 // Settlements are expenses of kind 'settle': the payer is owed back by the receiver.
+// Optional fields: payers {id:cents} when several people paid (paidBy is then the
+// biggest payer), currency when it differs from the home's, notes and comments.
+// A home may set simplify:false to settle person to person, and expensesOnly:true
+// for a group or trip without chores.
 function validateExpenses(h,validDate){
   validateBills(h,validDate);validateShopping(h);
-  if(h.expenses===undefined)return;
   const fail=()=>{throw new Error('This is not a valid Flatflow backup. No data was changed.');};
+  if((h.simplify!==undefined&&typeof h.simplify!=='boolean')||(h.expensesOnly!==undefined&&typeof h.expensesOnly!=='boolean'))fail();
+  if(h.expenses===undefined)return;
   const validId=id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id),ids=new Set();
+  const validSplit=(o,amount)=>{if(!o||typeof o!=='object'||Array.isArray(o))return false;const v=Object.entries(o);return v.length>0&&v.length<=30&&v.every(([id,n])=>validId(id)&&Number.isInteger(n)&&n>=0)&&v.reduce((n,[,x])=>n+x,0)===amount;};
   if(!Array.isArray(h.expenses)||h.expenses.length>100)fail();
   for(const e of h.expenses){
-    if(!e||!validId(e.id)||ids.has(e.id)||!['expense','settle'].includes(e.kind)||typeof e.title!=='string'||!e.title.trim()||e.title.length>100||typeof e.category!=='string'||e.category.length>30||!validDate(e.spentOn)||!validId(e.paidBy)||!Number.isInteger(e.amount)||e.amount<1||e.amount>100000000||!e.shares||typeof e.shares!=='object'||Array.isArray(e.shares))fail();
-    const shares=Object.entries(e.shares);
-    if(!shares.length||shares.length>30||shares.some(([id,v])=>!validId(id)||!Number.isInteger(v)||v<0)||shares.reduce((n,[,v])=>n+v,0)!==e.amount)fail();
+    if(!e||!validId(e.id)||ids.has(e.id)||!['expense','settle'].includes(e.kind)||typeof e.title!=='string'||!e.title.trim()||e.title.length>100||typeof e.category!=='string'||e.category.length>30||!validDate(e.spentOn)||!validId(e.paidBy)||!Number.isInteger(e.amount)||e.amount<1||e.amount>100000000||!validSplit(e.shares,e.amount))fail();
+    if(e.payers!==undefined&&(!validSplit(e.payers,e.amount)||!(e.payers[e.paidBy]>0)))fail();
+    if(e.currency!==undefined&&(typeof e.currency!=='string'||!/^[A-Z]{3}$/.test(e.currency)))fail();
+    if(e.notes!==undefined&&(typeof e.notes!=='string'||e.notes.length>500))fail();
+    if(e.comments!==undefined&&(!Array.isArray(e.comments)||e.comments.length>20||e.comments.some(c=>!c||!validId(c.id)||typeof c.by!=='string'||c.by.length>80||typeof c.text!=='string'||!c.text.trim()||c.text.length>300||typeof c.at!=='string'||isNaN(Date.parse(c.at)))))fail();
     ids.add(e.id);
   }
 }
@@ -102,33 +110,72 @@ export function splitAmount(amount,weights){
   for(const p of parts.slice().sort((a,b)=>b.rest-a.rest||a.i-b.i)){if(!left)break;p.cents++;left--;}
   return Object.fromEntries(parts.map(p=>[p.id,p.cents]));
 }
+export const paidShares=e=>e.payers||{[e.paidBy]:e.amount};
+export const expenseCurrency=(h,e)=>e.currency||h.currency||'EUR';
+// Every currency with expenses, the home's own first.
+export function currenciesInUse(h){const home=h.currency||'EUR',set=new Set((h.expenses||[]).map(e=>expenseCurrency(h,e)));set.delete(home);return [home,...[...set].sort()];}
 // Positive: the flatmate is owed money. Negative: they owe the household.
-export function expenseBalances(h){
+export function expenseBalances(h,currency=h.currency||'EUR'){
   const net={};
-  for(const e of h.expenses||[]){net[e.paidBy]=(net[e.paidBy]||0)+e.amount;for(const [id,v] of Object.entries(e.shares))net[id]=(net[id]||0)-v;}
+  for(const e of h.expenses||[]){if(expenseCurrency(h,e)!==currency)continue;for(const [id,v] of Object.entries(paidShares(e)))net[id]=(net[id]||0)+v;for(const [id,v] of Object.entries(e.shares))net[id]=(net[id]||0)-v;}
   for(const id of Object.keys(net))if(!net[id])delete net[id];
   return net;
 }
+// Who owes whom without simplifying: each share is owed to whoever paid,
+// split between several payers in proportion to what they paid.
+export function pairwiseDebts(h,currency=h.currency||'EUR'){
+  const pair={};
+  const add=(from,to,v)=>{if(from===to||!v)return;const [a,b]=from<to?[from,to]:[to,from],k=a+'|'+b;pair[k]=(pair[k]||0)+(from===a?v:-v);};
+  for(const e of h.expenses||[]){if(expenseCurrency(h,e)!==currency)continue;const payers=paidShares(e);for(const [id,v] of Object.entries(e.shares)){if(!v)continue;const parts=Object.keys(payers).length===1?{[e.paidBy]:v}:splitAmount(v,payers);for(const [to,x] of Object.entries(parts))add(id,to,x);}}
+  return Object.entries(pair).filter(([,v])=>v).map(([k,v])=>{const [a,b]=k.split('|');return v>0?{from:a,to:b,amount:v}:{from:b,to:a,amount:-v};}).sort((x,y)=>y.amount-x.amount||x.from.localeCompare(y.from));
+}
 // Greedy debt simplification: at most n-1 payments, largest debts first.
-export function settlements(h){
-  const net=expenseBalances(h),owe=[],owed=[];
+// Homes that turned simplifying off settle person to person instead.
+export function settlements(h,currency=h.currency||'EUR'){
+  if(h.simplify===false)return pairwiseDebts(h,currency);
+  const net=expenseBalances(h,currency),owe=[],owed=[];
   for(const [id,v] of Object.entries(net))(v<0?owe:owed).push({id,v:Math.abs(v)});
   owe.sort((a,b)=>b.v-a.v||a.id.localeCompare(b.id));owed.sort((a,b)=>b.v-a.v||a.id.localeCompare(b.id));
   const result=[];let i=0,j=0;
   while(i<owe.length&&j<owed.length){const amount=Math.min(owe[i].v,owed[j].v);result.push({from:owe[i].id,to:owed[j].id,amount});owe[i].v-=amount;owed[j].v-=amount;if(!owe[i].v)i++;if(!owed[j].v)j++;}
   return result;
 }
+const moneyText=(cur,c)=>`${cur} ${(c/100).toFixed(2)}`;
+// Normalises the optional fields shared by new and edited expenses.
+function expenseFields(h,e){
+  const people=new Set(h.people.map(p=>p.id)),payers=e.payers&&Object.keys(e.payers).filter(id=>e.payers[id]>0).length>1?Object.fromEntries(Object.entries(e.payers).filter(([,v])=>v>0)):null;
+  const paidBy=payers?Object.entries(payers).sort((a,b)=>b[1]-a[1])[0][0]:e.paidBy;
+  if(!people.has(paidBy)||Object.keys(e.shares).some(id=>!people.has(id))||(payers&&Object.keys(payers).some(id=>!people.has(id))))throw new Error('Choose current flatmates for this expense.');
+  if(payers&&Object.values(payers).reduce((n,v)=>n+v,0)!==e.amount)throw new Error('What each person paid must add up to the total.');
+  const out={paidBy,amount:e.amount,shares:e.shares};
+  if(payers)out.payers=payers;
+  if(e.currency&&e.currency!==(h.currency||'EUR'))out.currency=e.currency;
+  if(e.notes&&e.notes.trim())out.notes=e.notes.trim().slice(0,500);
+  return out;
+}
 export function addExpense(h,e){
-  const people=new Set(h.people.map(p=>p.id));
-  if(!people.has(e.paidBy)||Object.keys(e.shares).some(id=>!people.has(id)))throw new Error('Choose current flatmates for this expense.');
   h.expenses=h.expenses||[];
+  const fields=expenseFields(h,e);
   compactExpenses(h);
-  const expense={id:uid(),kind:e.kind||'expense',title:e.title,category:e.category||'',spentOn:e.spentOn,paidBy:e.paidBy,amount:e.amount,shares:e.shares};
+  const expense={id:uid(),kind:e.kind||'expense',title:e.title,category:e.category||'',spentOn:e.spentOn,...fields};
   h.expenses.unshift(expense);
-  const payer=h.people.find(p=>p.id===e.paidBy).name,cents=`${h.currency||'EUR'} ${(e.amount/100).toFixed(2)}`;
-  if(expense.kind==='settle')record(h,'settle',`${payer} paid ${h.people.find(p=>p.id===Object.keys(e.shares)[0]).name} ${cents}`,e.paidBy);
-  else record(h,'expense',`${payer} paid ${cents} for ${e.title}`,e.paidBy);
+  const payer=h.people.find(p=>p.id===expense.paidBy).name,cents=moneyText(expenseCurrency(h,expense),e.amount);
+  if(expense.kind==='settle')record(h,'settle',`${payer} paid ${h.people.find(p=>p.id===Object.keys(e.shares)[0]).name} ${cents}`,expense.paidBy);
+  else record(h,'expense',`${expense.payers?payer+' and others':payer} paid ${cents} for ${e.title}`,expense.paidBy);
   return expense;
+}
+// Edits keep the expense's id and comments.
+export function editExpense(h,id,e){
+  const i=(h.expenses||[]).findIndex(x=>x.id===id);if(i<0)throw new Error('This expense no longer exists.');
+  const old=h.expenses[i];
+  h.expenses[i]={id,kind:old.kind,title:e.title,category:e.category||'',spentOn:e.spentOn,...expenseFields(h,e),...(old.comments?{comments:old.comments}:{})};
+  record(h,'expense',`${e.title} was edited`);
+  return h.expenses[i];
+}
+export function addComment(h,id,by,text){
+  const e=(h.expenses||[]).find(x=>x.id===id);if(!e)throw new Error('This expense no longer exists.');
+  text=String(text||'').trim();if(!text)throw new Error('Write a comment first.');if(text.length>300)throw new Error('Keep comments under 300 characters.');
+  e.comments=[...(e.comments||[]),{id:uid(),by:by||'',text,at:new Date().toISOString()}].slice(-20);
 }
 export function removeExpense(h,id){
   const e=(h.expenses||[]).find(e=>e.id===id);if(!e)throw new Error('This expense no longer exists.');
@@ -136,7 +183,7 @@ export function removeExpense(h,id){
 }
 // Once everyone is square, old expenses can be cleared to keep the household small.
 export function clearSettledExpenses(h){
-  if(Object.keys(expenseBalances(h)).length)throw new Error('Settle every balance before clearing expenses.');
+  if(currenciesInUse(h).some(c=>Object.keys(expenseBalances(h,c)).length))throw new Error('Settle every balance before clearing expenses.');
   const n=(h.expenses||[]).length;h.expenses=[];record(h,'expense',`${n} settled expense${n===1?'':'s'} cleared`);
 }
 // When the expense list is full, the 30 oldest expenses are folded into a few
@@ -146,13 +193,14 @@ function compactExpenses(h){
   while(h.expenses.length>30&&(h.expenses.length>=100||JSON.stringify(h).length>34000))foldOldest(h);
 }
 function foldOldest(h){
-  const old=h.expenses.slice(-30),net={};
-  for(const e of old){net[e.paidBy]=(net[e.paidBy]||0)+e.amount;for(const [id,v] of Object.entries(e.shares))net[id]=(net[id]||0)-v;}
-  const carried=[];
-  const owe=[],owed=[];for(const [id,v] of Object.entries(net))if(v)(v<0?owe:owed).push({id,v:Math.abs(v)});
-  owe.sort((a,b)=>b.v-a.v);owed.sort((a,b)=>b.v-a.v);let i=0,j=0;
-  const day=old.map(e=>e.spentOn).sort().pop();
-  while(i<owe.length&&j<owed.length){const amount=Math.min(owe[i].v,owed[j].v);carried.push({id:uid(),kind:'expense',title:'Earlier balances',category:'Carried over',spentOn:day,paidBy:owed[j].id,amount,shares:{[owe[i].id]:amount}});owe[i].v-=amount;owed[j].v-=amount;if(!owe[i].v)i++;if(!owed[j].v)j++;}
+  const old=h.expenses.slice(-30),carried=[],day=old.map(e=>e.spentOn).sort().pop();
+  for(const currency of new Set(old.map(e=>expenseCurrency(h,e)))){
+    const net={};
+    for(const e of old){if(expenseCurrency(h,e)!==currency)continue;for(const [id,v] of Object.entries(paidShares(e)))net[id]=(net[id]||0)+v;for(const [id,v] of Object.entries(e.shares))net[id]=(net[id]||0)-v;}
+    const owe=[],owed=[];for(const [id,v] of Object.entries(net))if(v)(v<0?owe:owed).push({id,v:Math.abs(v)});
+    owe.sort((a,b)=>b.v-a.v);owed.sort((a,b)=>b.v-a.v);let i=0,j=0;
+    while(i<owe.length&&j<owed.length){const amount=Math.min(owe[i].v,owed[j].v);carried.push({id:uid(),kind:'expense',title:'Earlier balances',category:'Carried over',spentOn:day,paidBy:owed[j].id,amount,shares:{[owe[i].id]:amount},...(currency!==(h.currency||'EUR')?{currency}:{})});owe[i].v-=amount;owed[j].v-=amount;if(!owe[i].v)i++;if(!owed[j].v)j++;}
+  }
   h.expenses=h.expenses.slice(0,-30).concat(carried);
 }
 // Recurring bills (rent, internet…) post a normal expense each time they fall due.

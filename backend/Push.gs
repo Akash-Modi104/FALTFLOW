@@ -96,11 +96,12 @@ function notifyExpenses_(homeHash,before,after){
   const known={};(before.expenses||[]).forEach(e=>known[e.id]=true);
   const added=(after.expenses||[]).filter(e=>!known[e.id]&&e.title!=='Earlier balances');
   if(!added.length)return;
-  const name=id=>(after.people.find(p=>p.id===id)||{}).name||'A flatmate',cur=after.currency||'EUR',money=c=>cur+' '+(c/100).toFixed(2);
+  const name=id=>(after.people.find(p=>p.id===id)||{}).name||'A flatmate',money=(e,c)=>(e.currency||after.currency||'EUR')+' '+(c/100).toFixed(2);
   const messages={};
   for(const e of added)for(const id of Object.keys(e.shares)){
-    if(id===e.paidBy||!e.shares[id])continue;
-    (messages[id]=messages[id]||[]).push(e.kind==='settle'?name(e.paidBy)+' paid you '+money(e.amount):name(e.paidBy)+' added '+e.title+' · your share '+money(e.shares[id]));
+    // Co-payers who covered their own share have nothing to hear about.
+    if(id===e.paidBy||!e.shares[id]||(e.payers&&(e.payers[id]||0)>=e.shares[id]))continue;
+    (messages[id]=messages[id]||[]).push(e.kind==='settle'?name(e.paidBy)+' paid you '+money(e,e.amount):name(e.paidBy)+' added '+e.title+' · your share '+money(e,e.shares[id]));
   }
   const props=PropertiesService.getScriptProperties(),all=props.getProperties();let sent=0;
   for(const key of Object.keys(all).filter(k=>k.indexOf('device_')===0)){
