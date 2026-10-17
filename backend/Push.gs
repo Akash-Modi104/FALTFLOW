@@ -19,7 +19,8 @@ function pushOperation_(request,entry){
     if(!old&&devices.filter(d=>d.home===entry.hash).length>=30)throw new Error('This home has reached its 30-device limit.');
     if(!old&&devices.length>=200)throw new Error('Device capacity reached.');
     dropLegacyPush_(props,endpoint,entry.hash);
-    props.setProperty(id,JSON.stringify({home:entry.hash,person:request.person,endpoint:endpoint,sent:old?.sent||'',testAt:old?.testAt||0}));
+    const keys=pushKeys_(request.keys)||old?.keys||null;
+    props.setProperty(id,JSON.stringify({home:entry.hash,person:request.person,endpoint:endpoint,keys:keys,sent:old?.sent||'',testAt:old?.testAt||0}));
     return {ok:true,enabled:true};
   }
   if(request.action==='unsubscribePush'){
@@ -39,7 +40,7 @@ function pushOperation_(request,entry){
   throw new Error('Unsupported notification operation.');
 }
 function b64url_(value){return Utilities.base64EncodeWebSafe(value).replace(/=+$/,'');}
-function sendPush_(endpoint){
+function sendPush_(endpoint,message,keys){
   pushEndpoint_(endpoint);
   const props=PropertiesService.getScriptProperties(),privateKey=props.getProperty('VAPID_PRIVATE'),publicKey=props.getProperty('VAPID_PUBLIC');
   if(!privateKey||!publicKey)throw new Error('Phone reminders are not configured yet.');
@@ -49,7 +50,10 @@ function sendPush_(endpoint){
   const input=header+'.'+claims;
   const signature=FlatflowPushCrypto.sign(input,privateKey).map(v=>v>127?v-256:v);
   const jwt=input+'.'+b64url_(signature);
-  return UrlFetchApp.fetch(endpoint,{method:'post',headers:{Authorization:'vapid t='+jwt+', k='+publicKey,TTL:'3600',Urgency:'normal'},payload:'',muteHttpExceptions:true,followRedirects:false}).getResponseCode();
+  const headers={Authorization:'vapid t='+jwt+', k='+publicKey,TTL:'3600',Urgency:'normal'};
+  let payload='';
+  if(message&&keys){headers['Content-Encoding']='aes128gcm';payload=FlatflowPushCrypto.encrypt(JSON.stringify(message),keys.p256dh,keys.auth,randomBytes_(48)).map(v=>v>127?v-256:v);}
+  return UrlFetchApp.fetch(endpoint,{method:'post',contentType:'application/octet-stream',headers:headers,payload:payload,muteHttpExceptions:true,followRedirects:false}).getResponseCode();
 }
 // Install from the editor. Never include private VAPID keys in source or GitHub.
 function setupPhoneReminders(){
@@ -72,5 +76,37 @@ function sendDailyPush_(){
     try{const status=sendPush_(d.endpoint);if(status===404||status===410){props.deleteProperty(id);continue;}if(status>=200&&status<300){
       const latest=props.getProperty(id);if(latest){const current=JSON.parse(latest);if(current.home===d.home&&current.person===d.person){current.sent=today;props.setProperty(id,JSON.stringify(current));}}
     }else console.log('Push delivery status '+status);}catch(e){console.log('Push service unavailable; device will be retried next day.');}
+  }
+}
+
+// Browser subscription keys let the server send an end-to-end encrypted message.
+function pushKeys_(keys){
+  if(!keys||typeof keys!=='object')return null;
+  const p256dh=String(keys.p256dh||''),auth=String(keys.auth||'');
+  return /^[\w-]{86,88}$/.test(p256dh)&&/^[\w-]{21,24}$/.test(auth)?{p256dh:p256dh,auth:auth}:null;
+}
+function randomBytes_(n){
+  let out=[];
+  while(out.length<n)out=out.concat(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,Utilities.getUuid()+Utilities.getUuid()+Date.now()).map(b=>(b+256)%256));
+  return out.slice(0,n);
+}
+// After a write, tells the flatmates involved about newly added expenses and payments.
+// Only devices that shared their encryption keys get a message; nobody gets one for their own payment.
+function notifyExpenses_(homeHash,before,after){
+  const known={};(before.expenses||[]).forEach(e=>known[e.id]=true);
+  const added=(after.expenses||[]).filter(e=>!known[e.id]&&e.title!=='Earlier balances');
+  if(!added.length)return;
+  const name=id=>(after.people.find(p=>p.id===id)||{}).name||'A flatmate',cur=after.currency||'EUR',money=c=>cur+' '+(c/100).toFixed(2);
+  const messages={};
+  for(const e of added)for(const id of Object.keys(e.shares)){
+    if(id===e.paidBy||!e.shares[id])continue;
+    (messages[id]=messages[id]||[]).push(e.kind==='settle'?name(e.paidBy)+' paid you '+money(e.amount):name(e.paidBy)+' added '+e.title+' · your share '+money(e.shares[id]));
+  }
+  const props=PropertiesService.getScriptProperties(),all=props.getProperties();let sent=0;
+  for(const key of Object.keys(all).filter(k=>k.indexOf('device_')===0)){
+    const d=JSON.parse(all[key]),lines=messages[d.person];
+    if(d.home!==homeHash||!lines||!d.keys||sent>=20)continue;
+    const message={title:after.name+' · '+(lines.length===1?'New expense':lines.length+' new expenses'),body:lines.length>3?lines.length+' new expenses and payments involve you.':lines.join('\n'),tag:'flatflow-expense'};
+    try{const status=sendPush_(d.endpoint,message,d.keys);sent++;if(status===404||status===410)props.deleteProperty(key);}catch(err){console.log('Expense notification failed: '+err.message);}
   }
 }

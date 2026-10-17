@@ -13,7 +13,7 @@ function mockBackend(fetchMock=()=>({getResponseCode:()=>201})){
   const template=fs.readFileSync(new URL('../backend/Code.template.gs',import.meta.url),'utf8');
   let core=fs.readFileSync(new URL('../public/core.js',import.meta.url),'utf8').replaceAll('export ','').replace('crypto.randomUUID()','Utilities.getUuid()');
   for(const n of ['uid','iso','date','addDays','nextDue','away','assignee','advance','emptyHome','demoHome','validateHome','record','complete','rollOver','skip','schedule','icsEscape','calendar','validateExpenses','splitAmount','expenseBalances','settlements','addExpense','removeExpense','clearSettledExpenses','postDueBills','validateBills','compactExpenses','validateShopping'])core=core.replace(new RegExp('\\b'+n+'\\b','g'),n+'_');
-  vm.runInContext(template+'\n'+core+'\n'+fs.readFileSync(new URL('../backend/Push.gs',import.meta.url),'utf8')+'\n'+fs.readFileSync(new URL('../backend/Accounts.gs',import.meta.url),'utf8'),context);return {rpc:r=>context.rpc(structuredClone(r)),rows,emails,props};
+  vm.runInContext(template+'\n'+core+'\n'+fs.readFileSync(new URL('../backend/Push.gs',import.meta.url),'utf8')+'\n'+fs.readFileSync(new URL('../backend/Accounts.gs',import.meta.url),'utf8'),context);return {rpc:r=>context.rpc(structuredClone(r)),rows,emails,props,context};
 }
 const key='a'.repeat(64);
 test('backend rejects unknown and malformed household keys',()=>{const b=mockBackend();assert.throws(()=>b.rpc({action:'read',key:'short'}),/Invalid household/);assert.throws(()=>b.rpc({action:'read',key}),/Household not found/);});
@@ -52,4 +52,23 @@ test('sign-in rejects tokens for other apps, unverified emails and forged sessio
   for(const [claims,error] of [[{aud:'someone-else'},/sign-in failed/],[{iss:'https://evil.test'},/sign-in failed/],[{exp:'1'},/sign-in failed/],[{email_verified:'false'},/Verify your Google email/]]){const b=mockBackend(googleToken(claims));b.props.set('GOOGLE_CLIENT_ID','client-123');assert.throws(()=>b.rpc({action:'signIn',idToken}),error);}
   const b=mockBackend(()=>({getResponseCode:()=>400}));b.props.set('GOOGLE_CLIENT_ID','client-123');assert.throws(()=>b.rpc({action:'signIn',idToken}),/sign-in failed/);
   assert.throws(()=>b.rpc({action:'myHomes',session:'f'.repeat(64)}),/expired/);assert.throws(()=>b.rpc({action:'myHomes'}),/expired/);
+});
+
+test('new expenses notify the flatmates who owe, with an encrypted message',()=>{
+  const sent=[];const b=mockBackend((url,options)=>{sent.push({url,options});return {getResponseCode:()=>201};});
+  b.props.set('VAPID_PRIVATE','1'.repeat(64));b.props.set('VAPID_PUBLIC','public-key');
+  b.context.Utilities.base64EncodeWebSafe=v=>Buffer.from(typeof v==='string'?v:v.map(x=>x&255)).toString('base64url');
+  b.context.FlatflowPushCrypto={sign:()=>Array(64).fill(1),encrypt:(text,p256dh,auth,random)=>{assert.equal(random.length,48);return [...Buffer.from(text)];}};
+  const h=demoHome(),[a,j,s]=h.people.map(p=>p.id);b.rpc({action:'create',key,home:h,op:randomUUID()});
+  const keys={p256dh:'B'+'a'.repeat(86),auth:'b'.repeat(22)};
+  b.rpc({action:'subscribePush',key,person:a,endpoint:'https://web.push.apple.com/payer',keys});
+  b.rpc({action:'subscribePush',key,person:j,endpoint:'https://web.push.apple.com/jamie',keys});
+  b.rpc({action:'subscribePush',key,person:s,endpoint:'https://web.push.apple.com/sam-no-keys'});
+  const next=structuredClone(h);next.expenses=[{id:randomUUID(),kind:'expense',title:'Pizza',category:'',spentOn:'2026-10-17',paidBy:a,amount:3000,shares:{[a]:1000,[j]:1000,[s]:1000}}];
+  b.rpc({action:'write',key,home:next,revision:1,op:randomUUID()});
+  assert.deepEqual(sent.map(x=>x.url),['https://web.push.apple.com/jamie']);
+  assert.equal(sent[0].options.headers['Content-Encoding'],'aes128gcm');
+  const message=JSON.parse(Buffer.from(sent[0].options.payload.map(x=>x&255)).toString());
+  assert.match(message.body,/Alex added Pizza · your share EUR 10.00/);
+  b.rpc({action:'write',key,home:structuredClone(next),revision:2,op:randomUUID()});assert.equal(sent.length,1);
 });

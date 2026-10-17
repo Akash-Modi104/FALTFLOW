@@ -54,7 +54,9 @@ function rpc(request) {
       validateHome_(request.home);
       // Verification is controlled by the server, never by editable JSON.
       request.home.people.forEach(p=>{const previous=entry.home.people.find(x=>x.id===p.id);if(previous&&previous.emailVerified){p.email=previous.email;p.emailVerified=true;}else{delete p.email;delete p.emailVerified;}});
-      entry.home=request.home;entry.revision++;saveRow_(s,row,entry,request.op);return publicResult_(entry);
+      const before=entry.home;entry.home=request.home;entry.revision++;saveRow_(s,row,entry,request.op);
+      try{notifyExpenses_(entry.hash,before,entry.home);}catch(err){console.log('Notifications skipped: '+err.message);}
+      return publicResult_(entry);
     }
     if(['pushConfig','subscribePush','unsubscribePush','testPush'].includes(request.action))return pushOperation_(request,entry);
     throw new Error('Unsupported operation.');
