@@ -60,3 +60,9 @@ test('a full expense list folds old expenses into exact carried-over balances',(
   for(const id of Object.keys(exact))if(!exact[id])delete exact[id];
   assert.deepEqual(JSON.parse(net),exact);
 });
+
+test('shopping lists are validated',()=>{
+  const h=demoHome();h.shopping=[{id:'milk',item:'Milk',addedBy:h.people[0].id,done:false}];validateHome(h);
+  h.shopping.push({id:'milk',item:'Eggs',addedBy:'',done:true});assert.throws(()=>validateHome(h),/not a valid/);
+  h.shopping=[{id:'x',item:'',addedBy:'',done:false}];assert.throws(()=>validateHome(h),/not a valid/);
+});
