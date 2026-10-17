@@ -9,7 +9,7 @@ workers_dev = true
 binding = "DB"
 database_name = "flatflow"
 # Replace with the id printed by: npx wrangler@4.151.1 d1 create flatflow
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "c761aa3f-a05b-4dc0-b82a-ce1e91789faa"
 
 [triggers]
 # Every 5 minutes from 07:00 to 08:55 UTC; the worker only sends during 09:00–10:00 Berlin time

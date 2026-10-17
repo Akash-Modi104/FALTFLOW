@@ -138,6 +138,8 @@ test('HTTP layer only answers Flatflow origins and hides the migration endpoint'
   const db=d1(),env={DB:db},ctx={waitUntil(){}};
   const post=(path,body,headers={})=>worker.fetch(new Request('https://flatflow.example.workers.dev'+path,{method:'POST',body:JSON.stringify(body),headers}),env,ctx);
   assert.equal((await post('/rpc',{action:'authConfig'},{Origin:'https://evil.test'})).status,403);
+  const preflight=await worker.fetch(new Request('https://flatflow.example.workers.dev/rpc',{method:'OPTIONS',headers:{Origin:'https://akash-modi104.github.io'}}),env,ctx);
+  assert.equal(preflight.status,204);assert.equal(preflight.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');
   const ok=await post('/rpc',{action:'authConfig'},{Origin:'https://akash-modi104.github.io'});
   assert.equal(ok.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');assert.deepEqual(await ok.json(),{enabled:false,clientId:''});
   const bad=await post('/rpc',{action:'read',key:'x'},{Origin:'https://akash-modi104.github.io'});assert.equal(bad.status,400);assert.match((await bad.json()).error,/Invalid household/);
