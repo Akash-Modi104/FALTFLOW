@@ -30,6 +30,7 @@ export function demoHome(){
 }
 export function validateHome(h){
   const fail=()=>{throw new Error('This is not a valid Flatflow backup. No data was changed.');};
+  if(h&&h.currency!==undefined&&(typeof h.currency!=='string'||!/^[A-Z]{3}$/.test(h.currency)))fail();
   if(!h||h.schema!==1||typeof h.id!=='string'||typeof h.name!=='string'||!h.name.trim()||h.name.length>80||!Array.isArray(h.people)||!Array.isArray(h.tasks)||!Array.isArray(h.history)||h.people.length>30||h.tasks.length>100||h.history.length>200)fail();
   const validDate = s => typeof s==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(s)&&!isNaN(date(s))&&iso(date(s))===s;
   const ids=new Set();
@@ -37,6 +38,7 @@ export function validateHome(h){
   const taskIds=new Set();
   for(const t of h.tasks){if(!t||typeof t.id!=='string'||!/^[\w-]{1,80}$/.test(t.id)||taskIds.has(t.id)||typeof t.title!=='string'||!t.title.trim()||t.title.length>100||typeof t.area!=='string'||t.area.length>60||typeof t.icon!=='string'||t.icon.length>16||typeof t.notes!=='string'||t.notes.length>1000||typeof t.paused!=='boolean'||!Number.isInteger(t.every)||t.every<1||t.every>365||!['day','week','month'].includes(t.unit)||!validDate(t.due)||!Number.isInteger(t.anchorDay)||t.anchorDay<1||t.anchorDay>31||!Number.isInteger(t.minutes)||t.minutes<1||t.minutes>600||!Array.isArray(t.order)||new Set(t.order).size!==t.order.length||!t.order.length||t.order.some(id=>!ids.has(id))||!Number.isInteger(t.turn)||t.turn<0||t.turn>=t.order.length)fail();taskIds.add(t.id);}
   for(const e of h.history){if(!e||typeof e.id!=='string'||typeof e.text!=='string'||e.text.length>500||typeof e.at!=='string'||isNaN(Date.parse(e.at))||typeof e.kind!=='string'||typeof e.person!=='string'||typeof e.task!=='string'||!Number.isFinite(e.minutes)||e.minutes<0||e.minutes>600)fail();}
+  validateExpenses(h,validDate);
   if(JSON.stringify(h).length>40000)throw new Error('This home is too large. Export a backup and clear older activity first.');
   return h;
 }
@@ -69,6 +71,70 @@ export function removePerson(h,id){
   const person=h.people.find(p=>p.id===id);if(!person)throw new Error('This flatmate no longer exists.');
   const solo=h.tasks.filter(t=>t.order.length===1&&t.order[0]===id);
   if(solo.length)throw new Error('Reassign these chores before deleting this flatmate: '+solo.map(t=>t.title).join(', '));
+  if(expenseBalances(h)[id])throw new Error('Settle up with '+person.name+' before deleting them.');
   for(const t of h.tasks){if(!t.order.includes(id))continue;const current=assignee(t,h.people)?.id;const next=t.order[(t.order.indexOf(id)+1)%t.order.length];t.order=t.order.filter(x=>x!==id);t.turn=Math.max(0,t.order.indexOf(current&&current!==id?current:next));}
   h.people=h.people.filter(p=>p.id!==id);record(h,'person',person.name+' left the home');
+}
+
+// Shared expenses. Amounts are integer cents; each expense stores the exact
+// share owed by every participant, so balances never drift from rounding.
+// Settlements are expenses of kind 'settle': the payer is owed back by the receiver.
+function validateExpenses(h,validDate){
+  if(h.expenses===undefined)return;
+  const fail=()=>{throw new Error('This is not a valid Flatflow backup. No data was changed.');};
+  const validId=id=>typeof id==='string'&&/^[\w-]{1,80}$/.test(id),ids=new Set();
+  if(!Array.isArray(h.expenses)||h.expenses.length>100)fail();
+  for(const e of h.expenses){
+    if(!e||!validId(e.id)||ids.has(e.id)||!['expense','settle'].includes(e.kind)||typeof e.title!=='string'||!e.title.trim()||e.title.length>100||typeof e.category!=='string'||e.category.length>30||!validDate(e.spentOn)||!validId(e.paidBy)||!Number.isInteger(e.amount)||e.amount<1||e.amount>100000000||!e.shares||typeof e.shares!=='object'||Array.isArray(e.shares))fail();
+    const shares=Object.entries(e.shares);
+    if(!shares.length||shares.length>30||shares.some(([id,v])=>!validId(id)||!Number.isInteger(v)||v<0)||shares.reduce((n,[,v])=>n+v,0)!==e.amount)fail();
+    ids.add(e.id);
+  }
+}
+// Splits cents by weight with the largest-remainder method; ties go to earlier people.
+export function splitAmount(amount,weights){
+  const entries=Object.entries(weights).filter(([,w])=>w>0),total=entries.reduce((n,[,w])=>n+w,0);
+  if(!Number.isInteger(amount)||amount<1)throw new Error('Enter an amount above zero.');
+  if(!entries.length||!(total>0))throw new Error('Choose at least one flatmate to split with.');
+  const parts=entries.map(([id,w],i)=>{const exact=amount*w/total;return {id,i,cents:Math.floor(exact),rest:exact-Math.floor(exact)};});
+  let left=amount-parts.reduce((n,p)=>n+p.cents,0);
+  for(const p of parts.slice().sort((a,b)=>b.rest-a.rest||a.i-b.i)){if(!left)break;p.cents++;left--;}
+  return Object.fromEntries(parts.map(p=>[p.id,p.cents]));
+}
+// Positive: the flatmate is owed money. Negative: they owe the household.
+export function expenseBalances(h){
+  const net={};
+  for(const e of h.expenses||[]){net[e.paidBy]=(net[e.paidBy]||0)+e.amount;for(const [id,v] of Object.entries(e.shares))net[id]=(net[id]||0)-v;}
+  for(const id of Object.keys(net))if(!net[id])delete net[id];
+  return net;
+}
+// Greedy debt simplification: at most n-1 payments, largest debts first.
+export function settlements(h){
+  const net=expenseBalances(h),owe=[],owed=[];
+  for(const [id,v] of Object.entries(net))(v<0?owe:owed).push({id,v:Math.abs(v)});
+  owe.sort((a,b)=>b.v-a.v||a.id.localeCompare(b.id));owed.sort((a,b)=>b.v-a.v||a.id.localeCompare(b.id));
+  const result=[];let i=0,j=0;
+  while(i<owe.length&&j<owed.length){const amount=Math.min(owe[i].v,owed[j].v);result.push({from:owe[i].id,to:owed[j].id,amount});owe[i].v-=amount;owed[j].v-=amount;if(!owe[i].v)i++;if(!owed[j].v)j++;}
+  return result;
+}
+export function addExpense(h,e){
+  const people=new Set(h.people.map(p=>p.id));
+  if(!people.has(e.paidBy)||Object.keys(e.shares).some(id=>!people.has(id)))throw new Error('Choose current flatmates for this expense.');
+  h.expenses=h.expenses||[];
+  if(h.expenses.length>=100)throw new Error('This home keeps up to 100 expenses. Settle up and clear settled expenses first.');
+  const expense={id:uid(),kind:e.kind||'expense',title:e.title,category:e.category||'',spentOn:e.spentOn,paidBy:e.paidBy,amount:e.amount,shares:e.shares};
+  h.expenses.unshift(expense);
+  const payer=h.people.find(p=>p.id===e.paidBy).name,cents=`${h.currency||'EUR'} ${(e.amount/100).toFixed(2)}`;
+  if(expense.kind==='settle')record(h,'settle',`${payer} paid ${h.people.find(p=>p.id===Object.keys(e.shares)[0]).name} ${cents}`,e.paidBy);
+  else record(h,'expense',`${payer} paid ${cents} for ${e.title}`,e.paidBy);
+  return expense;
+}
+export function removeExpense(h,id){
+  const e=(h.expenses||[]).find(e=>e.id===id);if(!e)throw new Error('This expense no longer exists.');
+  h.expenses=h.expenses.filter(x=>x.id!==id);record(h,'expense',`${e.title} was removed from expenses`);
+}
+// Once everyone is square, old expenses can be cleared to keep the household small.
+export function clearSettledExpenses(h){
+  if(Object.keys(expenseBalances(h)).length)throw new Error('Settle every balance before clearing expenses.');
+  const n=(h.expenses||[]).length;h.expenses=[];record(h,'expense',`${n} settled expense${n===1?'':'s'} cleared`);
 }
