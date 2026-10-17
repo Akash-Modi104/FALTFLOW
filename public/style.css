@@ -554,3 +554,11 @@ dialog::backdrop{background:var(--backdrop);backdrop-filter:blur(3px)}
 .fab .icon{width:26px;height:26px;stroke-width:2.4}
 @media (min-width:560px){.welcome-choices{grid-template-columns:repeat(3,1fr)}}
 @media (min-width:900px){.fab{display:none}}
+.claim-list{display:grid;gap:8px}
+.claim-option{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:8px 14px;border:1px solid var(--line);border-radius:14px;background:var(--surface);text-align:left;font-weight:600;color:var(--ink)}
+.claim-option:hover{border-color:var(--accent)}
+.claim-option small{margin-left:auto;color:var(--accent-text);font-weight:500}
+.claim-option.new{border-style:dashed}
+.claim-option.new .icon{width:36px;height:36px;padding:8px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text)}
+.you-row{display:flex;align-items:center;gap:10px;margin-top:6px}
+.you-row .text-btn{margin-left:auto}
