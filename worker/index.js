@@ -33,7 +33,7 @@ export default {
     }
     if (url.pathname !== '/rpc') return new Response('Flatflow backend is ready. Open the Flatflow app to connect.', {headers:{'Content-Type':'text/plain'}});
     if (!ALLOWED_ORIGINS.includes(origin)) return json({error:'Open Flatflow from its own address.'}, 403);
-    if (request.method === 'OPTIONS') return new Response(null, {status:204, headers:json({}, 204, origin).headers});
+    if (request.method === 'OPTIONS') return new Response(null, {status:204, headers:json({}, 200, origin).headers});
     if (request.method !== 'POST') return json({error:'Unsupported request.'}, 405, origin);
     try {
       const backend = createBackend(await withSettings(env), {waitUntil:p => ctx.waitUntil(p)});

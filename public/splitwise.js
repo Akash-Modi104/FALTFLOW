@@ -1,4 +1,4 @@
-import {uid,iso,record} from './core.js?v=15';
+import {uid,iso,record} from './core.js?v=16';
 // Reads the CSV that Splitwise exports per group: Date, Description, Category,
 // Cost, Currency, then one column per member holding that member's net change
 // for the row (positive for whoever paid, negative for whoever owes).
