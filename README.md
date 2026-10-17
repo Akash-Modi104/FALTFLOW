@@ -32,7 +32,10 @@ Use Settings → Enable phone notifications after choosing your name. On iPhone/
 
 Push uses standard ES256 VAPID authentication. Daily chore reminders have an empty payload, and the service worker shows a generic reminder. When a flatmate adds an expense you share, or pays you back, the devices of the people involved (not the payer) get a short message such as "Alex added Pizza · your share EUR 10.00". These messages are end-to-end encrypted to each device (RFC 8291, aes128gcm), so push services can't read them. Devices enabled before this feature share their encryption keys automatically the next time the app opens. Device endpoints are stored in private Apps Script properties, never in shared JSON. Official Apple, Google and Mozilla push endpoint hosts are allowed. Expired subscriptions are removed. Selecting a different name disables the existing subscription; enable it again for the new name.
 
-## Free Cloudflare backend (optional)
+## Backend: Cloudflare Workers + D1
+
+The live app uses the Cloudflare backend at `https://flatflow.developer-akash1043.workers.dev`. The Apps Script backend and its Google Sheet were retired and deleted on 2026-10-17. Its code (`backend/`) stays in the repo only for reference. Publish backend changes with `npm run deploy-worker`, after `npx wrangler@4.151.1 d1 execute flatflow --remote --file worker/schema.sql` if the tables changed.
+
 
 `worker/` is a second backend for Cloudflare's Workers Free plan with a D1 database. It answers the same requests as the Apps Script backend, so the app works with either: `public/config.js` decides which one it uses (a `script.google.com` address uses Apps Script, an address ending in `/rpc` uses the worker). It needs no payment method, and on the free plan going over a limit makes requests fail until the next day instead of costing money. Compared with Apps Script it answers in tens of milliseconds instead of seconds, keeps each home in its own database row instead of one Sheet cell, and has no iframe bridge.
 
