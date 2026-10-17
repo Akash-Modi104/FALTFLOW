@@ -22,3 +22,29 @@ export function saveSession(storage,state){
   try{storage.setItem(STORAGE,JSON.stringify(state));}catch{ok=false;}
   return ok;
 }
+// Every home opened on this device, so flatmates can belong to several homes
+// and switch between them. Shared homes are identified by their invitation key,
+// personal homes by their household id. Each entry keeps the last cached copy.
+export const HOMES='flatflow-homes-v1';
+export const homeEntryId=s=>s.mode==='shared'?'shared:'+s.key:'local:'+s.home.id;
+export function listHomes(storage){
+  try{const list=JSON.parse(storage.getItem(HOMES)||'[]');return Array.isArray(list)?list.filter(e=>e&&(e.mode==='shared'?validKey(e.key):e.mode==='local')&&e.home&&typeof e.home.name==='string'):[];}catch{return [];}
+}
+export function rememberHome(storage,state){
+  if(!['shared','local'].includes(state.mode)||(state.mode==='shared'&&!validKey(state.key)))return false;
+  const entry={id:homeEntryId(state),mode:state.mode,key:state.mode==='shared'?state.key:'',revision:state.revision||0,myId:state.myId||'',backend:state.backend||'',home:state.home,opened:new Date().toISOString()};
+  const list=listHomes(storage).filter(e=>e.id!==entry.id);list.push(entry);
+  try{storage.setItem(HOMES,JSON.stringify(list.slice(-20)));return true;}catch{return false;}
+}
+export function forgetHome(storage,id){
+  const list=listHomes(storage).filter(e=>e.id!==id);
+  try{storage.setItem(HOMES,JSON.stringify(list));return true;}catch{return false;}
+}
+// Restores a remembered home. A cached copy that no longer validates is
+// replaced by an empty placeholder; shared homes then reload from the server.
+export function openHome(entry,backend=''){
+  let home,cached=true;
+  try{home=validateHome(structuredClone(entry.home));}
+  catch{if(entry.mode!=='shared')throw new Error('This saved home is damaged. Import a backup instead.');home=emptyHome(entry.home.name||'Your household');cached=false;}
+  return {home,mode:entry.mode,key:entry.key||'',revision:cached?entry.revision||0:0,myId:entry.myId||'',backend:backend||entry.backend||''};
+}

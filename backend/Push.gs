@@ -4,22 +4,31 @@ function pushEndpoint_(endpoint) {
   if(typeof endpoint!=='string'||endpoint.length>2048||!/^https:\/\/(?:fcm\.googleapis\.com\/fcm\/send\/|web\.push\.apple\.com\/|updates\.push\.services\.mozilla\.com\/wpush\/v2\/)[A-Za-z0-9_\-\/.?=&%]+$/.test(endpoint))throw new Error('Unsupported notification service. Use Safari, Chrome, Edge, or Firefox.');
   return endpoint;
 }
-function pushId_(endpoint){return 'device_'+hash_(pushEndpoint_(endpoint));}
+// One record per device and home, so a phone can get reminders for several homes.
+function pushId_(endpoint,home){return 'device_'+hash_(pushEndpoint_(endpoint)+'|'+home);}
 function pushConfig_(){const p=PropertiesService.getScriptProperties();return {publicKey:p.getProperty('VAPID_PUBLIC'),enabled:!!p.getProperty('VAPID_PRIVATE')&&ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='sendDailyPush_')};}
+// Records created before multi-home support were keyed by endpoint alone.
+function dropLegacyPush_(props,endpoint,home){const legacy='device_'+hash_(endpoint),raw=props.getProperty(legacy);if(raw&&JSON.parse(raw).home===home)props.deleteProperty(legacy);}
 function pushOperation_(request,entry){
   const props=PropertiesService.getScriptProperties();
   if(request.action==='pushConfig')return pushConfig_();
-  const endpoint=pushEndpoint_(request.endpoint),id=pushId_(endpoint),raw=props.getProperty(id),old=raw?JSON.parse(raw):null;
+  const endpoint=pushEndpoint_(request.endpoint),id=pushId_(endpoint,entry.hash),raw=props.getProperty(id),old=raw?JSON.parse(raw):null;
   if(request.action==='subscribePush'){
     if(!entry.home.people.some(p=>p.id===request.person))throw new Error('Choose your name first.');
     const devices=Object.keys(props.getProperties()).filter(k=>k.startsWith('device_')).map(k=>JSON.parse(props.getProperty(k)));
     if(!old&&devices.filter(d=>d.home===entry.hash).length>=30)throw new Error('This home has reached its 30-device limit.');
     if(!old&&devices.length>=200)throw new Error('Device capacity reached.');
+    dropLegacyPush_(props,endpoint,entry.hash);
     props.setProperty(id,JSON.stringify({home:entry.hash,person:request.person,endpoint:endpoint,sent:old?.sent||'',testAt:old?.testAt||0}));
     return {ok:true,enabled:true};
   }
+  if(request.action==='unsubscribePush'){
+    props.deleteProperty(id);
+    dropLegacyPush_(props,endpoint,entry.hash);
+    return {ok:true};
+  }
   if(!old||old.home!==entry.hash)throw new Error('Enable notifications on this device first.');
-  if(request.action==='unsubscribePush'){props.deleteProperty(id);return {ok:true};}
+
   if(request.action==='testPush'){
     if(Date.now()-old.testAt<60000)throw new Error('Wait a minute before sending another test.');
     old.testAt=Date.now();props.setProperty(id,JSON.stringify(old));
