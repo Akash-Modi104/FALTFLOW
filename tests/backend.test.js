@@ -35,8 +35,10 @@ const idToken='aaa.bbb.ccc';
 test('sign-in is off until the owner sets a Google client ID',()=>{const b=mockBackend(googleToken());assert.deepEqual({...b.rpc({action:'authConfig'})},{enabled:false,clientId:''});assert.throws(()=>b.rpc({action:'signIn',idToken}),/not set up/);b.props.set('GOOGLE_CLIENT_ID','client-123');assert.equal(b.rpc({action:'authConfig'}).enabled,true);});
 test('accounts keep their homes and identity across devices',()=>{
   const b=mockBackend(googleToken());b.props.set('GOOGLE_CLIENT_ID','client-123');
-  const h=demoHome(),other=demoHome(),key2='b'.repeat(64);b.rpc({action:'create',key,home:h,op:randomUUID()});b.rpc({action:'create',key:key2,home:other,op:randomUUID()});
+  const h=demoHome(),other=demoHome(),key2='b'.repeat(64);
   const phone=b.rpc({action:'signIn',idToken});assert.match(phone.session,/^[a-f0-9]{64}$/);assert.equal(phone.homes.length,0);
+  assert.throws(()=>b.rpc({action:'create',key,home:h,op:randomUUID()}),/Sign in to continue/);
+  b.rpc({action:'create',key,home:h,op:randomUUID(),session:phone.session});b.rpc({action:'create',key:key2,home:other,op:randomUUID(),session:phone.session});
   b.rpc({action:'linkHome',session:phone.session,key,person:h.people[0].id});b.rpc({action:'linkHome',session:phone.session,key:key2});
   assert.throws(()=>b.rpc({action:'linkHome',session:phone.session,key:'c'.repeat(64)}),/not found/);
   assert.throws(()=>b.rpc({action:'linkHome',session:phone.session,key,person:'stranger'}),/Choose your name/);
@@ -82,4 +84,13 @@ test('Apps Script keeps sealed invite codes for a week, three per home',()=>{
   assert.throws(()=>b.rpc({action:'createInvite',key,invite,sealed:'bad'}),/Invalid invite/);
   for(const c of '0123')b.rpc({action:'createInvite',key,invite:c.repeat(64),sealed});
   assert.equal([...b.props.keys()].filter(k=>k.startsWith('invite_')).length,3);
+});
+
+test('with sign-in on, every home action needs a session and links the home to the account',()=>{
+  const b=mockBackend(googleToken());b.props.set('GOOGLE_CLIENT_ID','client-123');const h=demoHome();
+  const owner=b.rpc({action:'signIn',idToken});b.rpc({action:'create',key,home:h,op:randomUUID(),session:owner.session});
+  for(const r of [{action:'read',key},{action:'write',key,home:h,revision:1,op:randomUUID()},{action:'redeemInvite',invite:'e'.repeat(64)},{action:'read',key,session:'f'.repeat(64)}])assert.throws(()=>b.rpc(r),/Sign in to continue/);
+  const friend=b.rpc({action:'signIn',idToken});b.rpc({action:'signOut',session:owner.session});
+  assert.equal(b.rpc({action:'read',key,session:friend.session}).home.name,h.name);
+  assert.equal(b.rpc({action:'myHomes',session:friend.session}).homes.length,1);
 });

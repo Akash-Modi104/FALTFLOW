@@ -65,3 +65,19 @@ function accountResult_(account){
   for(const h of account.homes){const found=findHome_(h.key);if(found)homes.push({key:h.key,person:found.home.people.some(p=>p.id===h.person)?h.person:'',name:found.home.name});}
   return {ok:true,account:{name:account.name,email:account.email},homes:homes};
 }
+
+// Once Google sign-in is configured, every home action needs a signed-in
+// account. Opening a home with its key adds the home to that account.
+function requireMember_(request){
+  const props=PropertiesService.getScriptProperties();
+  if(!props.getProperty('GOOGLE_CLIENT_ID'))return null;
+  const token=String(request&&request.session||''),session=/^[a-f0-9]{64}$/.test(token)?JSON.parse(props.getProperty('session_'+hash_(token))||'null'):null;
+  if(!session||session.exp<Date.now())throw new Error('Sign in to continue.');
+  const account=readAccount_(props,session.sub);if(!account)throw new Error('Sign in to continue.');
+  return {props:props,sub:session.sub,account:account};
+}
+function linkMember_(member,key){
+  if(!member||member.account.homes.some(h=>h.key===key))return;
+  if(member.account.homes.length>=20)throw new Error('An account can belong to up to 20 homes. Leave one first.');
+  member.account.homes.push({key:key,person:''});saveAccount_(member.props,member.sub,member.account);
+}
