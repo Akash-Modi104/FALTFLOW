@@ -54,18 +54,20 @@ async function unzip(buffer){
   return out;
 }
 const unescape=s=>s.replace(/&(lt|gt|quot|apos|amp|#\d+|#x[\da-f]+);/gi,(m,e)=>({lt:'<',gt:'>',quot:'"',apos:"'",amp:'&'}[e.toLowerCase()]??String.fromCodePoint(e[1].toLowerCase()==='x'?parseInt(e.slice(2),16):parseInt(e.slice(1),10))));
+// Some writers prefix every tag with a namespace, such as <x:row>.
+const plain=s=>s&&s.replace(/<(\/?)[A-Za-z][\w.-]*:(?=[A-Za-z])/g,'<$1');
 const texts=s=>[...s.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)].map(m=>unescape(m[1])).join('');
 // Rows of the first worksheet as arrays of strings.
 export async function readXlsx(buffer){
-  const files=await unzip(buffer),shared=[...(files.get('xl/sharedStrings.xml')||'').matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m=>texts(m[1]));
+  const files=await unzip(buffer);for(const [k,v] of files)files.set(k,plain(v));const shared=[...(files.get('xl/sharedStrings.xml')||'').matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map(m=>texts(m[1]));
   const first=[...(files.get('xl/workbook.xml')||'').matchAll(/<sheet\b[^>]*r:id="([^"]+)"/g)][0]?.[1];
   const target=first&&(files.get('xl/_rels/workbook.xml.rels')||'').match(new RegExp(`Id="${first}"[^>]*Target="([^"]+)"|Target="([^"]+)"[^>]*Id="${first}"`));
   const path=target?'xl/'+(target[1]||target[2]).replace(/^\/?xl\//,''):'xl/worksheets/sheet1.xml',sheet=files.get(path)||files.get('xl/worksheets/sheet1.xml');
   if(!sheet)throw new Error('This Excel file has no sheets.');
   const rows=[];
-  for(const r of sheet.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)){
+  for(const r of sheet.matchAll(/<row\b[^>]*?(?:\/>|>([\s\S]*?)<\/row>)/g)){
     const row=[];
-    for(const c of r[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+    for(const c of (r[1]||'').matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
       const ref=(c[1].match(/r="([A-Z]+)\d+"/)||[])[1],type=(c[1].match(/t="(\w+)"/)||[])[1],body=c[2]||'',v=(body.match(/<v>([\s\S]*?)<\/v>/)||[])[1];
       const i=ref?[...ref].reduce((n,ch)=>n*26+ch.charCodeAt(0)-64,0)-1:row.length;
       row[i]=type==='s'?shared[Number(v)]??'':type==='inlineStr'?texts(body):v===undefined?'':unescape(v);

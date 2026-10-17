@@ -1,4 +1,4 @@
-import {uid,iso,record} from './core.js?v=18';
+import {uid,iso,record} from './core.js?v=19';
 // Reads the CSV that Splitwise exports per group: Date, Description, Category,
 // Cost, Currency, then one column per member holding that member's net change
 // for the row (positive for whoever paid, negative for whoever owes).
@@ -15,19 +15,23 @@ export function parseCsv(text){
   if(cell||row.length){row.push(cell);rows.push(row);}
   return rows.filter(r=>r.some(c=>c.trim()));
 }
-const toCents=s=>{const v=String(s).trim().replace(/[^\d.,-]/g,'');if(!/^-?\d+([.,]\d{1,2})?$/.test(v))return NaN;return Math.round(Number(v.replace(',','.'))*100);};
+// Accepts 12.50, 12,50, 1,234.56 and the long decimals Excel stores, such as 33.329999999999998.
+const toCents=s=>{let v=String(s).trim().replace(/[^\d.,eE+-]/g,'');if(!v)return NaN;if(v.includes(',')&&v.includes('.'))v=v.replace(/,/g,'');else v=v.replace(',','.');if(!/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(v))return NaN;const c=Number(v)*100;return Number.isFinite(c)&&Math.abs(c-Math.round(c))<0.01?Math.round(c)||0:NaN;};
 export function readSplitwise(text){
-  const rows=parseCsv(text.replace(/^﻿/,''));
+  const all=parseCsv(text.replace(/^﻿/,''));
+  // The header is usually the first row, but a spreadsheet may carry a title row or two above it.
+  const start=Math.max(0,all.slice(0,10).findIndex(r=>['date','description','cost','currency'].every(n=>r.some(c=>c.trim().toLowerCase()===n)))),rows=all.slice(start);
   const head=(rows[0]||[]).map(c=>c.trim()),col=n=>head.findIndex(h=>h.toLowerCase()===n);
-  const at={date:col('date'),title:col('description'),category:col('category'),cost:col('cost'),currency:col('currency')};
-  if(Object.values(at).some(i=>i<0)||at.currency!==4||head.length<7)throw new Error('This doesn’t look like a Splitwise group export. In Splitwise, open the group → Settings → Export as spreadsheet, then choose that CSV file.');
-  const members=head.slice(5);
+  const at={date:col('date'),title:col('description'),category:col('category'),cost:col('cost'),currency:col('currency')},first=Math.max(...Object.values(at))+1;
+  while(head.length>first&&!head[head.length-1])head.pop();
+  if(Object.values(at).some(i=>i<0)||head.length<first+2)throw new Error('This doesn’t look like a Splitwise group export. In Splitwise, open the group → Settings → Export as spreadsheet, then choose that CSV file.');
+  const members=head.slice(first);
   if(new Set(members.map(m=>m.toLowerCase())).size!==members.length||members.some(m=>!m))throw new Error('This export has blank or repeated member names. Rename them in Splitwise and export again.');
   const entries=[],skipped=[];
   for(const r of rows.slice(1)){
-    const title=(r[at.title]||'').trim(),day=(r[at.date]||'').trim().slice(0,10);
+    const title=(r[at.title]||'').trim(),raw=(r[at.date]||'').trim(),day=(/^\d{5}(\.\d+)?$/.test(raw)?new Date(Date.UTC(1899,11,30)+Math.floor(Number(raw))*864e5).toISOString():raw).slice(0,10); // Excel stores dates as day numbers
     if(/^total balance$/i.test(title)||!day)continue;
-    const nets=Object.fromEntries(members.map((m,i)=>[m,toCents(r[5+i]||'0')])),cost=toCents(r[at.cost]);
+    const nets=Object.fromEntries(members.map((m,i)=>[m,toCents(r[first+i]||'0')])),cost=toCents(r[at.cost]);
     if(!/^\d{4}-\d{2}-\d{2}$/.test(day)||!(cost>0)||Object.values(nets).some(Number.isNaN)){skipped.push(title||day);continue;}
     const drift=Object.values(nets).reduce((n,v)=>n+v,0);
     if(Math.abs(drift)>members.length){skipped.push(title);continue;}
