@@ -31,3 +31,10 @@ CREATE TABLE IF NOT EXISTS settings (
   name TEXT PRIMARY KEY,          -- VAPID_PRIVATE, VAPID_PUBLIC or GOOGLE_CLIENT_ID, copied by the migration
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS invites (
+  id TEXT PRIMARY KEY,            -- hash of the short invite code (the code itself is never sent)
+  home TEXT NOT NULL,
+  sealed TEXT NOT NULL,           -- household key encrypted in the browser with the code
+  exp INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS invites_home ON invites (home);

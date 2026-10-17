@@ -5,7 +5,7 @@
 import {validateHome, rollOver, away, assignee} from '../public/core.js';
 import {vapidSigner, sendPush, pushEndpoint} from './webpush.js';
 
-export const MAX_HOMES = 200, MAX_DEVICES = 300, SESSION_DAYS = 90;
+export const MAX_HOMES = 200, MAX_DEVICES = 300, SESSION_DAYS = 90, INVITE_DAYS = 7, MAX_INVITES = 1000;
 export const ACCOUNT_ACTIONS = ['authConfig','signIn','myHomes','linkHome','unlinkHome','signOut'];
 const PUSH_ACTIONS = ['pushConfig','subscribePush','unsubscribePush','testPush'];
 
@@ -55,6 +55,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
 
   async function rpc(request) {
     if (request && ACCOUNT_ACTIONS.includes(request.action)) return accountOperation(request);
+    if (request && request.action === 'redeemInvite') return redeemInvite(request);
     if (!request || !validKey(request.key)) fail('Invalid household invitation.');
     const h = await hash(request.key);
     if (request.action === 'create') {
@@ -71,6 +72,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     let entry = await readHome(h);
     if (!entry) fail('Household not found. Ask your flatmate for the invitation link.');
     entry = await rolledOver(entry);
+    if (request.action === 'createInvite') return createInvite(request, entry);
     if (request.action === 'read') return Number(request.revision) === entry.revision ? {ok:true, unchanged:true, revision:entry.revision} : publicResult(entry);
     if (request.action === 'write') {
       if (typeof request.op !== 'string' || !/^[\w-]{20,80}$/.test(request.op)) fail('Invalid operation.');
@@ -87,6 +89,25 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     }
     if (PUSH_ACTIONS.includes(request.action)) return pushOperation(request, entry);
     fail('Unsupported operation.');
+  }
+
+  // Short invite codes. The app encrypts the household key with the code before
+  // sending it, so only that sealed copy is kept, filed under a hash of the code.
+  // Codes last 7 days; a home keeps its 3 newest.
+  async function createInvite(request, entry) {
+    if (!validKey(String(request.invite || '')) || typeof request.sealed !== 'string' || !/^[\w-]{40,200}$/.test(request.sealed)) fail('Invalid invite code.');
+    const now = Date.now(), exp = now + INVITE_DAYS * 864e5;
+    await db.prepare('DELETE FROM invites WHERE exp < ?').bind(now).run();
+    await db.prepare('DELETE FROM invites WHERE home = ? AND id NOT IN (SELECT id FROM invites WHERE home = ? ORDER BY exp DESC LIMIT 2)').bind(entry.hash, entry.hash).run();
+    if ((await db.prepare('SELECT COUNT(*) AS n FROM invites').first()).n >= MAX_INVITES) fail('Too many open invite codes. Try again tomorrow, or share the link.');
+    await db.prepare('INSERT OR REPLACE INTO invites (id, home, sealed, exp) VALUES (?, ?, ?, ?)').bind(request.invite, entry.hash, request.sealed, exp).run();
+    return {ok:true, expires:new Date(exp).toISOString()};
+  }
+  async function redeemInvite(request) {
+    if (!validKey(String(request.invite || ''))) fail('Check the invite code and try again.');
+    const row = await db.prepare('SELECT sealed, exp FROM invites WHERE id = ?').bind(request.invite).first();
+    if (!row || row.exp < Date.now()) fail('That invite code is wrong or has expired. Ask for a new one.');
+    return {ok:true, sealed:row.sealed};
   }
 
   // Personal accounts through Google sign-in. Google verifies the person; the

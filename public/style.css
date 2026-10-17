@@ -352,6 +352,13 @@ button.home-pill:hover{border-color:var(--line-strong)}
 .home-entry small{color:var(--muted);font-size:12px}
 .email-state{font-size:12px;color:var(--pos)}
 
+.buttons{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.invite-code-box{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;padding:14px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line)}
+.invite-code-box>div{min-width:0;flex:1 1 200px}
+.invite-code-box b{display:block;font-size:14px}
+.invite-code-box small{display:block;color:var(--muted);font-size:12.5px;margin-top:2px;line-height:1.5}
+.invite-code{display:block;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:28px;font-weight:700;letter-spacing:3px;color:var(--accent-text);margin:4px 0}
+
 /* ---------- Forms ---------- */
 .field{display:grid;gap:6px;margin-bottom:14px;font-size:13.5px;font-weight:600;color:var(--ink)}
 .field input,.field select,.field textarea,.search{width:100%;min-height:44px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:12px;background:var(--surface);color:var(--ink);font-size:15px;font-weight:400;transition:border-color .15s,box-shadow .15s}
