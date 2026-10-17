@@ -4,7 +4,7 @@ Shared-flat chore rotation PWA, hosted on GitHub Pages with a private Google She
 
 ## Using your home
 
-Create one shared household and send its invitation from Settings → Invite flatmates. Each person chooses their own name under Settings → I am on their device. My chores filters their assignments. This is household-link access, not individual authenticated accounts: anyone holding the invitation can manage the home.
+Create a shared household and send its invitation from Settings → Invite flatmates. You can belong to several homes: tap the home name (sidebar, or top of the screen on phones) to switch homes, join another with an invitation, or create a new one. Homes are remembered per device. Each person chooses their own name under Settings → I am on their device. My chores filters their assignments. This is household-link access, not individual authenticated accounts: anyone holding the invitation can manage the home.
 
 Add chores with daily, weekly, monthly or custom intervals, select participants and rotation order. Complete, pass, postpone or reassign a turn. Set away dates or breaks for flatmates. Delete a flatmate from their edit screen after reassigning any chores where they are the only participant. Updates sync online; cached chores can be viewed offline. Export/import JSON backups in Settings.
 
