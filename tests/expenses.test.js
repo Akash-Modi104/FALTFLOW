@@ -122,3 +122,8 @@ test('a long Splitwise history imports in full, folding only what would not fit'
   const net=JSON.stringify(expenseBalances(h));
   importSplitwise(h,make(200));validateHome(h);assert.ok(h.expenses.length<=MAX_EXPENSES);assert.ok(h.expenses.some(e=>e.title==='Earlier balances'));
 });
+
+test('a flatmate can carry a sign-in link tag, and a malformed one is refused',()=>{
+  const h=demoHome();h.people[0].claim='0123456789abcdef';validateHome(h);
+  h.people[0].claim='not-a-tag';assert.throws(()=>validateHome(h),/not a valid/);
+});
