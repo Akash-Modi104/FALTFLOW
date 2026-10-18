@@ -583,3 +583,15 @@ dialog::backdrop{background:var(--backdrop);backdrop-filter:blur(3px)}
 .page-head+.money-line{font-size:16px;margin:-6px 0 16px}
 @media (max-width:899px){.page-head .btn{display:none}.page-head{margin:18px 0 14px}}
 @media (min-width:900px){.columns>.money-first{order:2}}
+/* ---------- Sign-in options ---------- */
+.gate-alt{width:100%;max-width:320px;margin:0 auto 10px;display:flex}
+.gate-alt .icon{width:20px;height:20px}
+.email-form{max-width:320px;margin:0 auto;text-align:left}
+.email-form .btn{width:100%}
+.email-form .text-btn{display:block;margin:12px auto 0}
+.email-sent{font-size:14px;line-height:1.6;color:var(--ink-2);margin:0 0 14px;text-align:center}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12.5px;margin:4px 0 14px}
+.or::before,.or::after{content:'';flex:1;border-top:1px solid var(--line)}
+.settings-grid .email-form{margin:12px 0 0}
+.settings-grid #google-signin{margin:12px 0 6px}
+.text-btn.danger{color:var(--neg);margin-top:14px}

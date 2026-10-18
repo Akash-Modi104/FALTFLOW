@@ -100,7 +100,7 @@ test('daily reminders go out once, only in the Berlin 9 o’clock hour, to peopl
 
 const googleToken=(claims={})=>async()=>Response.json({aud:'client-123',iss:'https://accounts.google.com',exp:String(Math.floor(Date.now()/1000)+600),sub:'1234567890',email:'asha@example.com',email_verified:'true',name:'Asha',...claims});
 test('accounts keep their homes across devices and sessions are hashed',async()=>{
-  const off=setup({fetcher:googleToken()});assert.deepEqual(await off.rpc({action:'authConfig'}),{enabled:false,clientId:''});
+  const off=setup({fetcher:googleToken()});assert.deepEqual(await off.rpc({action:'authConfig'}),{enabled:false,clientId:'',email:false,github:''});
   await assert.rejects(off.rpc({action:'signIn',idToken:'a.b.c'}),/not set up/);
   const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123'}}),h=demoHome(),other=demoHome();
   const phone=await w.rpc({action:'signIn',idToken:'a.b.c'});assert.match(phone.session,/^[a-f0-9]{64}$/);
@@ -129,7 +129,7 @@ test('HTTP layer only answers Flatflow origins',async()=>{
   const preflight=await worker.fetch(new Request('https://flatflow.example.workers.dev/rpc',{method:'OPTIONS',headers:{Origin:'https://akash-modi104.github.io'}}),env,ctx);
   assert.equal(preflight.status,204);assert.equal(preflight.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');
   const ok=await post('/rpc',{action:'authConfig'},{Origin:'https://akash-modi104.github.io'});
-  assert.equal(ok.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');assert.deepEqual(await ok.json(),{enabled:false,clientId:''});
+  assert.equal(ok.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');assert.deepEqual(await ok.json(),{enabled:false,clientId:'',email:false,github:''});assert.equal(ok.headers.get('X-Content-Type-Options'),'nosniff');
   const bad=await post('/rpc',{action:'read',key:'x'},{Origin:'https://akash-modi104.github.io'});assert.equal(bad.status,400);assert.match((await bad.json()).error,/Invalid household/);
 });
 
@@ -141,4 +141,61 @@ test('with sign-in on, every home action needs a session and links the home to t
   assert.equal((await w.rpc({action:'read',key,session:friend.session})).home.name,h.name);
   assert.equal((await w.rpc({action:'myHomes',session:friend.session})).homes.length,1);
   await assert.rejects(w.rpc({action:'read',key,session:owner.session}),/Sign in to continue/);
+});
+
+// Email codes, GitHub and Google all land on one account per verified email.
+const multiAuth=(log=[])=>async(url,options={})=>{
+  log.push({url:String(url),options});
+  if(String(url).startsWith('https://oauth2.googleapis.com/'))return googleToken()();
+  if(String(url).startsWith('https://api.brevo.com/'))return new Response('{}',{status:201});
+  if(String(url)==='https://github.com/login/oauth/access_token')return Response.json({access_token:'gho_test'});
+  if(String(url)==='https://api.github.com/user')return Response.json({id:4242,login:'asha-dev',name:'Asha D'});
+  if(String(url)==='https://api.github.com/user/emails')return Response.json([{email:'other@example.com',verified:true,primary:false},{email:'Asha@Example.com',verified:true,primary:true}]);
+  return new Response(null,{status:404});
+};
+const authEnv={GOOGLE_CLIENT_ID:'client-123',BREVO_API_KEY:'k',BREVO_SENDER:'hi@flatflow.test',GITHUB_CLIENT_ID:'gh-id',GITHUB_CLIENT_SECRET:'gh-secret'};
+const codeFrom=log=>JSON.parse(log.findLast(l=>l.url.startsWith('https://api.brevo.com/')).options.body).subject.slice(0,6);
+test('email code, GitHub and Google sign-ins share one account by verified email',async()=>{
+  const log=[],w=setup({fetcher:multiAuth(log),env:authEnv}),h=demoHome();
+  assert.deepEqual(await w.rpc({action:'authConfig'}),{enabled:true,clientId:'client-123',email:true,github:'gh-id'});
+  await assert.rejects(w.rpc({action:'emailCode',email:'not-an-email'}),/valid email/);
+  assert.deepEqual(await w.rpc({action:'emailCode',email:' Asha@Example.com '}),{ok:true,sent:true});
+  const mail=JSON.parse(log.at(-1).options.body);assert.equal(mail.to[0].email,'asha@example.com');assert.match(mail.subject,/^\d{6} is your Flatflow sign-in code$/);
+  const code=codeFrom(log);assert.ok(!JSON.stringify(w.db.sqlite.prepare('SELECT * FROM codes').all()).includes(code));
+  await assert.rejects(w.rpc({action:'emailCode',email:'asha@example.com'}),/Wait a minute|Too many/);
+  await assert.rejects(w.rpc({action:'emailVerify',email:'asha@example.com',code:'000000'}),/isn’t right/);
+  const phone=await w.rpc({action:'emailVerify',email:'asha@example.com',code});
+  assert.match(phone.session,/^[a-f0-9]{64}$/);assert.equal(phone.account.name,'asha');
+  await assert.rejects(w.rpc({action:'emailVerify',email:'asha@example.com',code}),/expired/);
+  await w.rpc({action:'create',key,home:h,op:randomUUID(),session:phone.session});
+  const laptop=await w.rpc({action:'githubSignIn',code:'abcdef123456',redirectUri:'https://akash-modi104.github.io/FALTFLOW/'});
+  assert.equal(laptop.account.name,'Asha D');assert.deepEqual(laptop.homes.map(x=>x.key),[key]);
+  const tablet=await w.rpc({action:'signIn',idToken:'a.b.c'});assert.deepEqual(tablet.homes.map(x=>x.key),[key]);
+  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM accounts').get().n,1);
+  const info=await w.rpc({action:'accountInfo',session:tablet.session});
+  assert.deepEqual(info.providers.sort(),['email','github','google']);assert.equal(info.sessions,3);assert.equal(info.account.email,'asha@example.com');
+  await w.rpc({action:'signOutAll',session:tablet.session});
+  await assert.rejects(w.rpc({action:'myHomes',session:phone.session}),/expired/);await assert.rejects(w.rpc({action:'myHomes',session:tablet.session}),/expired/);
+  const again=await w.rpc({action:'signIn',idToken:'a.b.c'});await w.rpc({action:'deleteAccount',session:again.session});
+  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM accounts').get().n,0);assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM logins').get().n,0);
+  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM homes').get().n,1);
+  const fresh=await w.rpc({action:'signIn',idToken:'a.b.c'});assert.deepEqual(fresh.homes,[]);
+});
+test('accounts from before sign-in methods keep their homes and sessions',async()=>{
+  const log=[],w=setup({fetcher:multiAuth(log),env:authEnv}),h=demoHome(),legacyId=await hash('1234567890');
+  w.db.sqlite.prepare('INSERT INTO accounts (id, data) VALUES (?, ?)').run(legacyId,JSON.stringify({name:'Asha',email:'asha@example.com',homes:[{key,person:''}]}));
+  w.db.sqlite.prepare('INSERT INTO sessions (id, sub, exp) VALUES (?, ?, ?)').run(await hash('c'.repeat(64)),'1234567890',Date.now()+864e5);
+  await w.rpc({action:'create',key,home:h,op:randomUUID(),session:'c'.repeat(64)});
+  const email=await (async()=>{await w.rpc({action:'emailCode',email:'asha@example.com'});return w.rpc({action:'emailVerify',email:'asha@example.com',code:codeFrom(log)});})();
+  assert.deepEqual(email.homes.map(x=>x.key),[key]);
+  const google=await w.rpc({action:'signIn',idToken:'a.b.c'});
+  assert.deepEqual(google.homes.map(x=>x.key),[key]);
+  assert.equal(w.db.sqlite.prepare('SELECT sub FROM sessions WHERE id = ?').get(await hash('c'.repeat(64))).sub,'a:'+legacyId);
+  assert.deepEqual((await w.rpc({action:'myHomes',session:'c'.repeat(64)})).homes.map(x=>x.key),[key]);
+});
+test('sign-in attempts are rate limited per address',async()=>{
+  const w=setup({fetcher:multiAuth(),env:authEnv});
+  for(let i=0;i<20;i++)await assert.rejects(w.backend.rpc({action:'emailVerify',email:'x@example.com',code:'1'},{ip:'1.2.3.4'}),/expired/);
+  await assert.rejects(w.backend.rpc({action:'emailVerify',email:'x@example.com',code:'1'},{ip:'1.2.3.4'}),/Too many attempts/);
+  await assert.rejects(w.backend.rpc({action:'emailVerify',email:'x@example.com',code:'1'},{ip:'5.6.7.8'}),/expired/);
 });
