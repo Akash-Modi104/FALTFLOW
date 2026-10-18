@@ -100,7 +100,7 @@ test('daily reminders go out once, only in the Berlin 9 o’clock hour, to peopl
 
 const googleToken=(claims={})=>async()=>Response.json({aud:'client-123',iss:'https://accounts.google.com',exp:String(Math.floor(Date.now()/1000)+600),sub:'1234567890',email:'asha@example.com',email_verified:'true',name:'Asha',...claims});
 test('accounts keep their homes across devices and sessions are hashed',async()=>{
-  const off=setup({fetcher:googleToken()});assert.deepEqual(await off.rpc({action:'authConfig'}),{enabled:false,clientId:'',email:false,github:''});
+  const off=setup({fetcher:googleToken()});assert.deepEqual(await off.rpc({action:'authConfig'}),{enabled:false,clientId:'',email:false,github:'',passkeys:false});
   await assert.rejects(off.rpc({action:'signIn',idToken:'a.b.c'}),/not set up/);
   const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123'}}),h=demoHome(),other=demoHome();
   const phone=await w.rpc({action:'signIn',idToken:'a.b.c'});assert.match(phone.session,/^[a-f0-9]{64}$/);
@@ -129,7 +129,7 @@ test('HTTP layer only answers Flatflow origins',async()=>{
   const preflight=await worker.fetch(new Request('https://flatflow.example.workers.dev/rpc',{method:'OPTIONS',headers:{Origin:'https://akash-modi104.github.io'}}),env,ctx);
   assert.equal(preflight.status,204);assert.equal(preflight.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');
   const ok=await post('/rpc',{action:'authConfig'},{Origin:'https://akash-modi104.github.io'});
-  assert.equal(ok.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');assert.deepEqual(await ok.json(),{enabled:false,clientId:'',email:false,github:''});assert.equal(ok.headers.get('X-Content-Type-Options'),'nosniff');
+  assert.equal(ok.headers.get('Access-Control-Allow-Origin'),'https://akash-modi104.github.io');assert.deepEqual(await ok.json(),{enabled:false,clientId:'',email:false,github:'',passkeys:false});assert.equal(ok.headers.get('X-Content-Type-Options'),'nosniff');
   const bad=await post('/rpc',{action:'read',key:'x'},{Origin:'https://akash-modi104.github.io'});assert.equal(bad.status,400);assert.match((await bad.json()).error,/Invalid household/);
 });
 
@@ -157,7 +157,7 @@ const authEnv={GOOGLE_CLIENT_ID:'client-123',BREVO_API_KEY:'k',BREVO_SENDER:'hi@
 const codeFrom=log=>JSON.parse(log.findLast(l=>l.url.startsWith('https://api.brevo.com/')).options.body).subject.slice(0,6);
 test('email code, GitHub and Google sign-ins share one account by verified email',async()=>{
   const log=[],w=setup({fetcher:multiAuth(log),env:authEnv}),h=demoHome();
-  assert.deepEqual(await w.rpc({action:'authConfig'}),{enabled:true,clientId:'client-123',email:true,github:'gh-id'});
+  assert.deepEqual(await w.rpc({action:'authConfig'}),{enabled:true,clientId:'client-123',email:true,github:'gh-id',passkeys:true});
   await assert.rejects(w.rpc({action:'emailCode',email:'not-an-email'}),/valid email/);
   assert.deepEqual(await w.rpc({action:'emailCode',email:' Asha@Example.com '}),{ok:true,sent:true});
   const mail=JSON.parse(log.at(-1).options.body);assert.equal(mail.to[0].email,'asha@example.com');assert.match(mail.subject,/^\d{6} is your Flatflow sign-in code$/);
@@ -198,4 +198,35 @@ test('sign-in attempts are rate limited per address',async()=>{
   for(let i=0;i<20;i++)await assert.rejects(w.backend.rpc({action:'emailVerify',email:'x@example.com',code:'1'},{ip:'1.2.3.4'}),/expired/);
   await assert.rejects(w.backend.rpc({action:'emailVerify',email:'x@example.com',code:'1'},{ip:'1.2.3.4'}),/Too many attempts/);
   await assert.rejects(w.backend.rpc({action:'emailVerify',email:'x@example.com',code:'1'},{ip:'5.6.7.8'}),/expired/);
+});
+
+// Passkeys: a WebAuthn ceremony built by hand with Node's crypto, as a browser would.
+import {generateKeyPairSync,sign as nodeSign,createHash} from 'node:crypto';
+const b64u=b=>Buffer.from(b).toString('base64url');
+test('passkeys register against the signed-in account and sign in without a third party',async()=>{
+  const origin='https://akash-modi104.github.io',rpHash=createHash('sha256').update('akash-modi104.github.io').digest();
+  const w=setup({fetcher:multiAuth(),env:authEnv}),call=(r)=>w.backend.rpc(structuredClone(r),{ip:'1.1.1.1',origin});
+  const me=await call({action:'signIn',idToken:'a.b.c'}),{privateKey,publicKey}=generateKeyPairSync('ec',{namedCurve:'P-256'});
+  const credId=randomBytes(16),spki=b64u(publicKey.export({type:'spki',format:'der'}));
+  const authData=(flags,counter,withId=false)=>{const head=Buffer.alloc(37);rpHash.copy(head);head[32]=flags;head.writeUInt32BE(counter,33);if(!withId)return head;const len=Buffer.alloc(2);len.writeUInt16BE(credId.length);return Buffer.concat([head,Buffer.alloc(16),len,credId]);};
+  const client=(type,challenge,o=origin)=>b64u(JSON.stringify({type,challenge,origin:o}));
+  const opts=await call({action:'passkeyOptions',session:me.session});assert.equal(opts.rpId,'akash-modi104.github.io');assert.equal(opts.name,'asha@example.com');
+  const reg={action:'passkeyRegister',session:me.session,id:b64u(credId),clientDataJSON:client('webauthn.create',opts.challenge),authenticatorData:b64u(authData(0x45,0,true)),publicKey:spki,publicKeyAlgorithm:-7,name:'Pixel'};
+  await assert.rejects(call({...reg,clientDataJSON:client('webauthn.create',opts.challenge,'https://evil.test')}),/failed/);
+  assert.deepEqual(await call(reg),{ok:true});
+  await assert.rejects(call(reg),/expired/); // a challenge is accepted once
+  const info=await call({action:'accountInfo',session:me.session});assert.deepEqual(info.passkeys.map(p=>p.name),['Pixel']);
+  const assertion=async(counter,challenge)=>{const ad=authData(0x05,counter),cd=client('webauthn.get',challenge);const sig=nodeSign('sha256',Buffer.concat([ad,createHash('sha256').update(Buffer.from(cd,'base64url')).digest()]),privateKey);return {action:'passkeySignIn',id:b64u(credId),clientDataJSON:cd,authenticatorData:b64u(ad),signature:b64u(sig)};};
+  const c1=(await call({action:'passkeyChallenge'})).challenge,signedIn=await call(await assertion(1,c1));
+  assert.match(signedIn.session,/^[a-f0-9]{64}$/);assert.equal(signedIn.account.email,'asha@example.com');
+  const c2=(await call({action:'passkeyChallenge'})).challenge,bad=await assertion(2,c2);bad.signature=b64u(randomBytes(70));
+  await assert.rejects(call(bad),/failed/);
+  const c3=(await call({action:'passkeyChallenge'})).challenge;await assert.rejects(call(await assertion(1,c3)),/failed/); // counter must move forward
+  const c4=(await call({action:'passkeyChallenge'})).challenge;assert.ok((await call(await assertion(5,c4))).session);
+  const {privateKey:otherKey}=generateKeyPairSync('ec',{namedCurve:'P-256'});
+  const c5=(await call({action:'passkeyChallenge'})).challenge,forged=await assertion(6,c5);
+  const ad=Buffer.from(forged.authenticatorData,'base64url');forged.signature=b64u(nodeSign('sha256',Buffer.concat([ad,createHash('sha256').update(Buffer.from(forged.clientDataJSON,'base64url')).digest()]),otherKey));
+  await assert.rejects(call(forged),/failed/);
+  await call({action:'passkeyRemove',session:me.session,id:b64u(credId)});
+  const c6=(await call({action:'passkeyChallenge'})).challenge;await assert.rejects(call(await assertion(7,c6)),/isn’t registered/);
 });

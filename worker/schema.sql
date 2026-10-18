@@ -23,6 +23,17 @@ CREATE TABLE IF NOT EXISTS codes (
   exp INTEGER NOT NULL,
   tries INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS passkeys (
+  id TEXT PRIMARY KEY,            -- WebAuthn credential id (base64url)
+  account TEXT NOT NULL,
+  public_key TEXT NOT NULL,       -- SPKI, base64url
+  alg INTEGER NOT NULL,           -- -7 ES256 or -257 RS256
+  counter INTEGER NOT NULL DEFAULT 0,
+  name TEXT NOT NULL DEFAULT '',
+  created TEXT NOT NULL,
+  used TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS passkeys_account ON passkeys (account);
 CREATE TABLE IF NOT EXISTS limits (
   id TEXT PRIMARY KEY,            -- hash of limit:<what>:<who>
   n INTEGER NOT NULL,

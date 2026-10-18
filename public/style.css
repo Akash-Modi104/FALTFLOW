@@ -595,3 +595,10 @@ dialog::backdrop{background:var(--backdrop);backdrop-filter:blur(3px)}
 .settings-grid .email-form{margin:12px 0 0}
 .settings-grid #google-signin{margin:12px 0 6px}
 .text-btn.danger{color:var(--neg);margin-top:14px}
+.passkeys{margin:16px 0 4px;display:grid;gap:8px}
+.passkeys>small{color:var(--muted);font-size:12.5px;line-height:1.5}
+.passkey-line{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.passkey-line span{flex:1}
+.passkey-line small{color:var(--muted);margin-left:6px}
+.passkey-line .icon{width:18px;height:18px;color:var(--accent-text)}
+.passkeys .btn{justify-self:start}
