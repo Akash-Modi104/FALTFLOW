@@ -7,7 +7,7 @@
   --bg:#ffffff;--bg-2:#f5f6f8;--bg-3:#eceef2;
   --ink:#141922;--ink-2:#3b4452;--muted:#6b7482;--faint:#9aa3b0;
   --line:#e6e8ec;--line-2:#d6dae1;
-  --accent:#4f46e5;--accent-2:#4338ca;--on-accent:#ffffff;--accent-soft:#eef0ff;--accent-ink:#4338ca;
+  --accent:#4f46e5;--accent-2:#4338ca;--on-accent:#ffffff;--accent-soft:#eef0ff;--accent-ink:#4338ca;--toast-accent:#a5a3ff;
   --pos:#15803d;--pos-soft:#e8f7ed;--neg:#c2410c;--neg-soft:#fff1e8;
   --warn-bg:#fff7e0;--warn-ink:#8a5a00;--danger:#dc2626;--danger-soft:#fdeaea;
   --paused-ink:#6b7482;
@@ -25,7 +25,7 @@
   --bg:#0f1218;--bg-2:#171b23;--bg-3:#20252f;
   --ink:#e9ecf1;--ink-2:#c3c9d3;--muted:#949daa;--faint:#6b7380;
   --line:#242a34;--line-2:#323946;
-  --accent:#6f6cf5;--accent-2:#8583f7;--on-accent:#ffffff;--accent-soft:#232647;--accent-ink:#a5a3ff;
+  --accent:#6f6cf5;--accent-2:#8583f7;--on-accent:#ffffff;--accent-soft:#232647;--accent-ink:#a5a3ff;--toast-accent:#4f46e5;
   --pos:#4ade80;--pos-soft:#14301f;--neg:#fb923c;--neg-soft:#3a2416;
   --warn-bg:#3a2e0e;--warn-ink:#f5d57a;--danger:#f87171;--danger-soft:#3a1c1c;
   --paused-ink:#949daa;
@@ -39,7 +39,7 @@
   --bg:#0f1218;--bg-2:#171b23;--bg-3:#20252f;
   --ink:#e9ecf1;--ink-2:#c3c9d3;--muted:#949daa;--faint:#6b7380;
   --line:#242a34;--line-2:#323946;
-  --accent:#6f6cf5;--accent-2:#8583f7;--on-accent:#ffffff;--accent-soft:#232647;--accent-ink:#a5a3ff;
+  --accent:#6f6cf5;--accent-2:#8583f7;--on-accent:#ffffff;--accent-soft:#232647;--accent-ink:#a5a3ff;--toast-accent:#4f46e5;
   --pos:#4ade80;--pos-soft:#14301f;--neg:#fb923c;--neg-soft:#3a2416;
   --warn-bg:#3a2e0e;--warn-ink:#f5d57a;--danger:#f87171;--danger-soft:#3a1c1c;
   --paused-ink:#949daa;
@@ -395,6 +395,8 @@ dialog#modal::backdrop{background:var(--scrim);backdrop-filter:blur(2px);-webkit
 .toast{position:fixed;left:50%;bottom:calc(var(--tabs) + 86px + env(safe-area-inset-bottom));transform:translate(-50%,16px);z-index:60;max-width:min(92vw,420px);padding:11px 16px;border-radius:14px;background:var(--ink);color:var(--bg);font-size:14px;font-weight:500;line-height:1.4;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .toast.error{background:var(--danger)}
+.toast button{pointer-events:auto;margin-left:14px;padding:4px 0;color:var(--toast-accent);font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.04em}
+.small-btn .icon{width:16px;height:16px}
 :root[data-theme="dark"] .toast,:root:not([data-theme="light"]) .toast{color:var(--bg)}
 
 /* ---------- Wider screens ---------- */
