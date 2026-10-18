@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="referrer" content="no-referrer"><meta name="theme-color" content="#f4f6f2">
+  <title>Flatflow — How your data is handled</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml"><link rel="stylesheet" href="./style.css?v=28">
+  <script>try{var t=localStorage.getItem('flatflow-theme');if(t==='light'||t==='dark')document.documentElement.dataset.theme=t}catch(e){}</script>
+  <style>
+    .privacy{max-width:720px;margin:0 auto;padding:32px 20px 60px;line-height:1.65;color:var(--ink)}
+    .privacy h1{font-family:var(--display);font-size:30px;margin:12px 0 4px}
+    .privacy h2{font-family:var(--display);font-size:19px;margin:30px 0 8px}
+    .privacy p,.privacy li{color:var(--ink-2);font-size:15px}
+    .privacy ul{padding-left:20px}
+    .privacy li{margin:6px 0}
+    .privacy .lede{font-size:16px;color:var(--ink)}
+    .privacy a{color:var(--accent-text)}
+    .privacy .back{display:inline-block;margin-bottom:12px;font-weight:600;text-decoration:none}
+    .privacy table{border-collapse:collapse;width:100%;font-size:14px;margin:10px 0}
+    .privacy th,.privacy td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line);color:var(--ink-2)}
+    .privacy th{color:var(--ink);font-weight:600}
+    .privacy small{color:var(--muted)}
+  </style>
+</head>
+<body>
+  <main class="privacy">
+    <a class="back" href="./">← Back to Flatflow</a>
+    <h1>How Flatflow handles your data</h1>
+    <p><small>Last updated 18 October 2026</small></p>
+    <p class="lede">Flatflow is a small, free app for people who share a home. It stores as little as it can, shows it only to the people in your home, and is free of ads, trackers and payments. This page says plainly what is kept, where, for how long, and how to remove it.</p>
+
+    <h2>What Flatflow keeps about you</h2>
+    <table>
+      <tr><th>When you sign in with Google</th><td>Your name and email address, so Flatflow can show who is signed in and tell your flatmates which flatmate you are. Your Google account id is kept only as a one-way hash, so it cannot be read back. Flatflow never sees your Google password.</td></tr>
+      <tr><th>Your homes</th><td>Which homes you belong to and who you are in each, so they follow you to every phone or computer you sign in on.</td></tr>
+      <tr><th>Your sign-in sessions</th><td>A random session token for each device you sign in on, kept as a one-way hash. Sessions end after 90 days, or straight away when you sign out.</td></tr>
+      <tr><th>Everything inside a home</th><td>The home's name, its flatmates' names, chores, activity, shopping list, expenses, payments, notes and comments. All of this is shared with everyone in that home, by design.</td></tr>
+      <tr><th>Phone reminders</th><td>If you turn notifications on, the address your browser gives Flatflow to reach that device, plus the keys needed to encrypt messages to it. Nothing about your phone itself.</td></tr>
+      <tr><th>Invite codes</th><td>Only a sealed copy of the home's key, locked with the code in your browser before it is sent. Codes expire after 7 days and expired ones are deleted.</td></tr>
+    </table>
+    <p>Flatflow does not keep your location, your contacts, your IP address, or anything from your Google account beyond your name and email. It does not use advertising, analytics or tracking of any kind.</p>
+
+    <h2>Who can see what</h2>
+    <ul>
+      <li><b>Your flatmates</b> see everything inside the homes you share with them. Anyone who has a home's invitation link or a valid invite code can open that home, so share them only with the people who live with you.</li>
+      <li><b>One home never sees another.</b> Each home is stored separately, and nothing from one home is shown in, or exported from, another.</li>
+      <li><b>Nobody else.</b> There is no public directory, no search, no sharing with other companies and no selling of data.</li>
+    </ul>
+
+    <h2>Where it is stored</h2>
+    <ul>
+      <li><b>On Flatflow's server</b>, a small database on Cloudflare's free Workers and D1 service. Cloudflare keeps the ordinary technical logs any hosting provider keeps. Flatflow's own code does not log who you are or what you do.</li>
+      <li><b>On your device</b>, so the app opens quickly and works offline: your current homes, your sign-in session and your settings. Signing out removes all shared homes and your session from that device. A personal, device-only home stays until you remove it.</li>
+      <li><b>With the services the app needs to work:</b> Google (sign-in only), Cloudflare (the server), GitHub Pages (the app's files and fonts loaded from Google Fonts) and the push service built into your phone or browser (Apple, Google or Mozilla) for notifications. Notification messages are encrypted so the push service cannot read them.</li>
+    </ul>
+
+    <h2>How to remove your data</h2>
+    <ul>
+      <li><b>Leave a home:</b> open your homes list and remove it. It stays available to your flatmates.</li>
+      <li><b>Delete a home for everyone:</b> Settings → Your data stays yours → <i>Delete this home for everyone</i>. This erases the home, its invite codes and its reminders from the server. It cannot be undone, so export a backup first if anyone wants the history.</li>
+      <li><b>Turn off reminders:</b> Settings → Phone notifications → <i>Turn off on this device</i> deletes that device's address from the server.</li>
+      <li><b>Sign out:</b> removes your session and every shared home from that device.</li>
+      <li><b>Delete your account:</b> Settings → Your account. This removes your sign-in, your sessions and the list of your homes. Homes you shared with others stay with them.</li>
+      <li><b>Take your data with you:</b> Settings → Export JSON gives you the whole home as a file; Expenses can also be exported as Excel or CSV.</li>
+    </ul>
+    <p>Deleted means deleted: Flatflow removes the rows from its database rather than hiding them. Daily backups of the database are managed by Cloudflare and roll off on their schedule.</p>
+
+    <h2>Cost</h2>
+    <p>Flatflow runs entirely on free services and has no payment method on file anywhere. If it ever becomes busier than those free limits allow, it pauses until the next day rather than charging anyone.</p>
+
+    <h2>Questions</h2>
+    <p>Flatflow is open source. Read the code or ask a question at <a href="https://github.com/Akash-Modi104/FALTFLOW" rel="noopener">github.com/Akash-Modi104/FALTFLOW</a>.</p>
+  </main>
+</body>
+</html>

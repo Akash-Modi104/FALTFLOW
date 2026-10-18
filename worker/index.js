@@ -12,6 +12,7 @@ const json = (data, status, origin) => new Response(JSON.stringify(data), {statu
 const publicMessage = err => err?.expose || !/D1_|SQLITE|internal/i.test(String(err?.message)) ? String(err.message || 'Sync failed') : 'Sync failed. Try again.';
 
 async function readBody(request) {
+  if (Number(request.headers.get('Content-Length') || 0) > MAX_BODY) throw Object.assign(new Error('This change is too large to sync.'), {expose:true});
   const text = await request.text();
   if (text.length > MAX_BODY) throw Object.assign(new Error('This change is too large to sync.'), {expose:true});
   try {return JSON.parse(text);} catch {throw Object.assign(new Error('Invalid request.'), {expose:true});}

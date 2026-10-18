@@ -230,3 +230,62 @@ test('passkeys register against the signed-in account and sign in without a thir
   await call({action:'passkeyRemove',session:me.session,id:b64u(credId)});
   const c6=(await call({action:'passkeyChallenge'})).challenge;await assert.rejects(call(await assertion(7,c6)),/isn’t registered/);
 });
+
+test('a full account cannot leave orphan homes behind when creating one more',async()=>{
+  const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123'}}),me=await w.rpc({action:'signIn',idToken:'a.b.c'});
+  for(let i=0;i<20;i++)await w.rpc({action:'create',key:String(i).padStart(64,'0'),home:demoHome(),op:randomUUID(),session:me.session});
+  await assert.rejects(w.rpc({action:'create',key:key2,home:demoHome(),op:randomUUID(),session:me.session}),/up to 20 homes/);
+  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM homes').get().n,20);
+  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM homes WHERE hash = ?').get(await hash(key2)).n,0);
+});
+
+test('deleting a home removes it with its invites and devices, and from the account',async()=>{
+  const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123',...vapid}}),h=demoHome(),me=await w.rpc({action:'signIn',idToken:'a.b.c'});
+  await w.rpc({action:'create',key,home:h,op:randomUUID(),session:me.session});await w.rpc({action:'create',key:key2,home:demoHome(),op:randomUUID(),session:me.session});
+  await w.rpc({action:'subscribePush',key,person:h.people[0].id,endpoint:'https://web.push.apple.com/mine',session:me.session});
+  await w.rpc({action:'createInvite',key,invite:'e'.repeat(64),sealed:'s'.repeat(50),session:me.session});
+  await assert.rejects(w.rpc({action:'deleteHome',key}),/Sign in/);
+  assert.deepEqual(await w.rpc({action:'deleteHome',key,session:me.session}),{ok:true,deleted:true});
+  const count=t=>w.db.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+  assert.equal(count('homes'),1);assert.equal(count('invites'),0);
+  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM devices WHERE home = ?').get(await hash(key)).n,0);
+  await assert.rejects(w.rpc({action:'read',key,session:me.session}),/Household not found/);
+  await assert.rejects(w.rpc({action:'redeemInvite',invite:'e'.repeat(64),session:me.session}),/wrong or has expired/);
+  assert.deepEqual((await w.rpc({action:'myHomes',session:me.session})).homes.map(x=>x.key),[key2]);
+});
+
+test('deleting an account also forgets its reminder devices and its sign-in tag in each home',async()=>{
+  const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123',...vapid}}),h=demoHome(),me=await w.rpc({action:'signIn',idToken:'a.b.c'});
+  const tag=(await hash('flatflow-claim|asha@example.com')).slice(0,16);h.people[0].claim=tag;h.people[1].claim='0123456789abcdef';
+  await w.rpc({action:'create',key,home:h,op:randomUUID(),session:me.session});
+  await w.rpc({action:'linkHome',key,person:h.people[0].id,session:me.session});
+  await w.rpc({action:'subscribePush',key,person:h.people[0].id,endpoint:'https://web.push.apple.com/asha',session:me.session});
+  await w.rpc({action:'subscribePush',key,person:h.people[1].id,endpoint:'https://web.push.apple.com/jamie',session:me.session});
+  await w.rpc({action:'deleteAccount',session:me.session});
+  const devices=w.db.sqlite.prepare('SELECT person FROM devices').all().map(r=>r.person);assert.deepEqual(devices,[h.people[1].id]);
+  const saved=JSON.parse(w.db.sqlite.prepare('SELECT home FROM homes').get().home);
+  assert.equal(saved.people[0].claim,undefined);assert.equal(saved.people[1].claim,'0123456789abcdef');assert.equal(saved.people.length,h.people.length);
+  assert.equal(w.db.sqlite.prepare('SELECT COUNT(*) AS n FROM accounts').get().n,0);
+});
+
+test('every cron run removes expired invite codes, sessions, sign-in codes and limit counters',async()=>{
+  const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123'}}),me=await w.rpc({action:'signIn',idToken:'a.b.c'});
+  await w.rpc({action:'create',key,home:demoHome(),op:randomUUID(),session:me.session});
+  await w.rpc({action:'createInvite',key,invite:'e'.repeat(64),sealed:'s'.repeat(50),session:me.session});
+  await w.backend.rpc({action:'passkeyChallenge'},{ip:'1.1.1.1',origin:'https://akash-modi104.github.io'});
+  for(const t of ['invites','sessions','codes'])w.db.sqlite.prepare(`UPDATE ${t} SET exp = 1`).run();w.db.sqlite.prepare('UPDATE limits SET reset = 1').run();
+  await w.daily(new Date());
+  for(const t of ['invites','sessions','codes','limits'])assert.equal(w.db.sqlite.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n,0,t);
+});
+
+test('passkey challenges are rate limited like the other sign-in steps',async()=>{
+  const w=setup({fetcher:googleToken(),env:{GOOGLE_CLIENT_ID:'client-123'}}),call=()=>w.backend.rpc({action:'passkeyChallenge'},{ip:'9.9.9.9',origin:'https://akash-modi104.github.io'});
+  for(let i=0;i<20;i++)await call();
+  await assert.rejects(call(),/Too many attempts/);
+});
+
+test('oversized requests are refused before they are read',async()=>{
+  const db=d1(),env={DB:db},ctx={waitUntil(){}};
+  const r=await worker.fetch(new Request('https://flatflow.example.workers.dev/rpc',{method:'POST',body:'{}',headers:{Origin:'https://akash-modi104.github.io','Content-Length':'99999999'}}),env,ctx);
+  assert.equal(r.status,400);assert.match((await r.json()).error,/too large/);
+});
