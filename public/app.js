@@ -1,10 +1,10 @@
-import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=30';
-import {MAX_EXPENSES,postDueBills,splitAmount,expenseBalances,settlements,pairwiseDebts,addExpense,editExpense,addComment,paidShares,expenseCurrency,currenciesInUse,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,away,assignee,advance,emptyHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=30';
-import {createSync} from './sync.js?v=30';
-import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=30';
-import {BACKEND_URL,SIGN_IN_METHODS} from './config.js?v=30';
-import {writeXlsx,readXlsx,rowsToCsv} from './xlsx.js?v=30';
-import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=30';
+import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=31';
+import {MAX_EXPENSES,postDueBills,splitAmount,expenseBalances,settlements,pairwiseDebts,addExpense,editExpense,addComment,paidShares,expenseCurrency,currenciesInUse,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,away,assignee,advance,emptyHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=31';
+import {createSync} from './sync.js?v=31';
+import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=31';
+import {BACKEND_URL,SIGN_IN_METHODS} from './config.js?v=31';
+import {writeXlsx,readXlsx,rowsToCsv} from './xlsx.js?v=31';
+import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=31';
 
 // ---------- Small helpers ----------
 const icons={
@@ -89,8 +89,8 @@ applyTheme();darkQuery.addEventListener?.('change',()=>{applyTheme();if(home)ren
 
 // ---------- Navigation: four tabs, a few deeper screens, sheets for everything else ----------
 const TABS=[['expenses','wallet','Expenses'],['chores','broom','Chores'],['activity','activity','Activity'],['account','user','Account']];
-const PARENT={schedule:'chores',flatmates:'account',shopping:'expenses',bills:'expenses',spending:'expenses'};
-const SCREEN_TITLES={schedule:'Schedule',flatmates:'Flatmates',shopping:'Shopping list',bills:'Recurring bills',spending:'Spending',activity:'Activity',account:'Account'};
+const PARENT={schedule:'chores',flatmates:'account',shopping:'expenses',bills:'expenses',spending:'expenses',people:'expenses'};
+const SCREEN_TITLES={schedule:'Schedule',flatmates:'Flatmates',shopping:'Shopping list',bills:'Recurring bills',spending:'Spending',people:'People',activity:'Activity',account:'Account'};
 const visibleTabs=()=>home?.expensesOnly?TABS.filter(([v])=>v!=='chores'):TABS;
 const tabOf=v=>PARENT[v]||v;
 function go(v){
@@ -138,7 +138,50 @@ function moneyHead(){
     for(const c of currenciesInUse(home))for(const s of settlements(home,c))lines.push(`<li><b>${esc(personName(s.from))}</b> owes <b>${esc(personName(s.to))}</b> ${money(s.amount,c)}</li>`);}
   const shown=lines.slice(0,3),more=lines.length-shown.length;
   const open=openPayments();
-  return `<section class="head"><p class="headline">${head}</p>${shown.length||more?`<ul class="sublines">${shown.join('')}${more>0?`<li><button data-action="balances">and ${plural(more,'more')}</button></li>`:''}</ul>`:''}<div class="pills"><button class="pill ${open?'primary':''}" data-action="settleUp">${I('hand')}Settle up</button><button class="pill" data-action="balances">${I('people')}Balances</button>${home.expensesOnly?'':`<button class="pill" data-action="go" data-id="shopping">${I('cart')}Shopping${(home.shopping||[]).filter(i=>!i.done).length?` <span class="badge">${(home.shopping||[]).filter(i=>!i.done).length}</span>`:''}</button>`}<button class="pill" data-action="expenseMenu">${I('dots')}More</button></div></section>`;
+  return `<section class="head"><p class="headline">${head}</p>${shown.length||more?`<ul class="sublines">${shown.join('')}${more>0?`<li><button data-action="balances">and ${plural(more,'more')}</button></li>`:''}</ul>`:''}<div class="pills"><button class="pill ${open?'primary':''}" data-action="settleUp">${I('hand')}Settle up</button><button class="pill" data-action="balances">${I('people')}Balances</button><button class="pill" data-action="go" data-id="people">${I('user')}People</button>${home.expensesOnly?'':`<button class="pill" data-action="go" data-id="shopping">${I('cart')}Shopping${(home.shopping||[]).filter(i=>!i.done).length?` <span class="badge">${(home.shopping||[]).filter(i=>!i.done).length}</span>`:''}</button>`}<button class="pill" data-action="expenseMenu">${I('dots')}More</button></div></section>`;
+}
+// ---------- People: everyone you share costs with, across every home on this device ----------
+// Each home only knows its own balances; this view adds them up per person and per currency,
+// matching people by name across homes the way you would in your head.
+function peopleAcrossHomes(){
+  rememberCurrent();
+  const people=new Map(),unknown=[];let homesCounted=0;
+  for(const e of listHomes(localStorage)){
+    const h=e.home,me=e.myId;if(!h?.people?.length)continue;
+    if(!me||!h.people.some(p=>p.id===me)){if(e.mode==='shared'||h.people.length>1)unknown.push(e);continue;}
+    homesCounted++;
+    const involved=id=>(h.expenses||[]).some(x=>x.shares?.[id]||x.paidBy===id||paidShares(x)[id]);
+    const get=p=>{const k=p.name.trim().toLowerCase();if(!people.has(k))people.set(k,{key:k,name:p.name.trim(),color:p.color||0,net:{},homes:[],active:false});return people.get(k);};
+    for(const p of h.people){if(p.id===me)continue;const r=get(p);r.homes.push({id:e.id,name:h.name,amounts:{}});if(involved(p.id))r.active=true;}
+    for(const cur of currenciesInUse(h))for(const d of settlements(h,cur)){
+      const other=d.to===me?d.from:d.from===me?d.to:'';if(!other)continue;const p=h.people.find(p=>p.id===other);if(!p)continue;
+      const r=get(p),signed=d.to===me?d.amount:-d.amount,hm=r.homes.find(x=>x.id===e.id);r.net[cur]=(r.net[cur]||0)+signed;hm.amounts[cur]=(hm.amounts[cur]||0)+signed;r.active=true;
+    }
+  }
+  const list=[...people.values()].sort((a,b)=>{const sa=Object.values(a.net).some(v=>v),sb=Object.values(b.net).some(v=>v);return (sb?1:0)-(sa?1:0)||a.name.localeCompare(b.name);});
+  return {list,unknown,homesCounted};
+}
+const sumBy=(list,sign)=>{const t={};for(const r of list)for(const [c,v] of Object.entries(r.net))if(Math.sign(v)===sign)t[c]=(t[c]||0)+Math.abs(v);return Object.entries(t).filter(([,v])=>v);};
+const moneyList=(pairs)=>pairs.map(([c,v])=>money(v,c)).join(' + ');
+function personEnd(net){
+  const owed=Object.entries(net).filter(([,v])=>v>0),owe=Object.entries(net).filter(([,v])=>v<0).map(([c,v])=>[c,-v]);
+  if(!owed.length&&!owe.length)return '';
+  return `${owed.length?`<small>owes you</small><b class="pos">${moneyList(owed)}</b>`:''}${owe.length?`<small>you owe</small><b class="neg">${moneyList(owe)}</b>`:''}`;
+}
+function peoplePage(){
+  const {list,unknown,homesCounted}=peopleAcrossHomes();
+  const owed=sumBy(list,1),owe=sumBy(list,-1);
+  const head=owed.length&&owe.length?`Overall<b class="pos" style="font-size:26px">You are owed ${moneyList(owed)}</b><b class="neg" style="font-size:26px;margin-top:4px">You owe ${moneyList(owe)}</b>`:owed.length?`Overall, you are owed<b class="pos">${moneyList(owed)}</b>`:owe.length?`Overall, you owe<b class="neg">${moneyList(owe)}</b>`:`Overall<b>All settled up</b>`;
+  const rows=list.map(r=>`<button type="button" class="row" data-action="person" data-id="${esc(r.key)}">${avatar(r,'lg')}<span class="row-main"><b>${esc(r.name)}</b>${r.homes.length>1?`<small>${plural(r.homes.length,'home')}</small>`:homesCounted>1?`<small>${esc(r.homes[0].name)}</small>`:''}</span><span class="row-end ${Object.values(r.net).some(v=>v>0)?'pos':Object.values(r.net).some(v=>v<0)?'neg':'muted'}">${personEnd(r.net)||`<b>${r.active?'settled up':'no expenses'}</b>`}</span></button>`).join('');
+  return `<section class="head"><p class="headline">${head}</p>${homesCounted>1?`<p class="note" style="margin-top:6px">Across ${plural(homesCounted,'home')} on this device.</p>`:''}</section><section class="list">${rows||`<div class="empty"><h3>Nobody yet</h3><p>People you share costs with in any of your homes show up here.</p></div>`}</section>${unknown.length?`<p class="note" style="padding:12px 16px">${unknown.length===1?`${esc(unknown[0].home.name)} doesn’t`:plural(unknown.length,'home')+' don’t'} know which one is you yet, so ${unknown.length===1?'it is':'they are'} left out. Open ${unknown.length===1?'it':'them'} and pick your name.</p>`:''}`;
+}
+function personSheet(who){
+  openSheet(()=>{
+    const r=peopleAcrossHomes().list.find(x=>x.key===who);if(!r){$('#modal').close();return;}
+    const current=mode==='welcome'?'':homeEntryId({home,mode,key});
+    const rows=r.homes.map(h=>{const end=personEnd(h.amounts);return `<div class="row">${I('home')}<span class="row-main"><b>${esc(h.name)}</b><small>${end?'':'settled up'}</small></span><span class="row-end ${Object.values(h.amounts).some(v=>v>0)?'pos':Object.values(h.amounts).some(v=>v<0)?'neg':'muted'}">${end}</span>${h.id===current?'<span class="badge you">Open now</span>':`<button class="small-btn" type="button" data-action="switchHome" data-id="${esc(h.id)}">Open</button>`}</div>`;}).join('');
+    dialog(esc(r.name),personEnd(r.net)?`${Object.values(r.net).some(v=>v>0)?`${esc(r.name)} owes you ${moneyList(Object.entries(r.net).filter(([,v])=>v>0))}. `:''}${Object.values(r.net).some(v=>v<0)?`You owe ${esc(r.name)} ${moneyList(Object.entries(r.net).filter(([,v])=>v<0).map(([c,v])=>[c,-v]))}.`:''}`:'You are settled up.',`<div class="detail-rows">${rows}</div><p class="note">Open a home to settle up or see the expenses behind this.</p>`);
+  });
 }
 function expenseMatches(e){
   if(expenseFilter==='mine'&&!(e.shares[myId]||paidShares(e)[myId]))return false;
@@ -458,7 +501,7 @@ function accountPage(){
   const homes=listHomes(localStorage).slice().reverse(),current=mode==='welcome'?'':homeEntryId({home,mode,key});
   const signIn=!authInfo?'<p class="note pad">Checking whether sign-in is available…</p>':!authInfo.clientId?'':account?'':`<div class="section-title">Account</div><div class="section"><div style="padding:14px"><p class="note" style="margin-bottom:12px">Sign in so all your homes follow you to every phone and computer.</p><div id="google-signin" class="google"></div></div></div>`;
   return profile+signIn+`<div class="section-title">This home</div><div class="section">${row('home','Home',"homeDetails",esc(home.name))}${row('people','Flatmates','go',String(home.people.length),'data-id="flatmates"')}${mode==='shared'?row('share','Invite flatmates','share'):row('link','Share this home online','connect')}${row('bell','Notifications','notificationsSheet',pushHomes()[home.id]===myId&&myId?'On':'Off')}</div>
-  <div class="section-title">Your homes</div><div class="section">${homes.map(e=>`<button type="button" class="row" data-action="${e.id===current?'homes':'switchHome'}" data-id="${esc(e.id)}" ${e.id===current?'':'data-mutate'}><span class="row-icon">${I('home')}</span><span class="row-main"><b>${esc(e.home.name)}</b><small>${e.mode==='shared'?'Shared':'This device only'}${e.myId&&e.home.people?.find(p=>p.id===e.myId)?' · '+esc(e.home.people.find(p=>p.id===e.myId).name):''}</small></span>${e.id===current?'<span class="badge you">Open</span>':I('chevron').replace('class="icon"','class="icon chev"')}</button>`).join('')}${row('key','Join with a code or link','joinLink')}${row('plus','Create a home','newHome')}</div>
+  <div class="section-title">Your homes</div><div class="section">${homes.map(e=>`<button type="button" class="row" data-action="${e.id===current?'homes':'switchHome'}" data-id="${esc(e.id)}"><span class="row-icon">${I('home')}</span><span class="row-main"><b>${esc(e.home.name)}</b><small>${e.mode==='shared'?'Shared':'This device only'}${e.myId&&e.home.people?.find(p=>p.id===e.myId)?' · '+esc(e.home.people.find(p=>p.id===e.myId).name):''}</small></span>${e.id===current?'<span class="badge you">Open</span>':I('chevron').replace('class="icon"','class="icon chev"')}</button>`).join('')}${row('key','Join with a code or link','joinLink')}${row('plus','Create a home','newHome')}</div>
   <div class="section-title">App</div><div class="section"><div class="row"><span class="row-icon">${I(isDark()?'moon':'sun')}</span><span class="row-main"><b>Appearance</b></span><div class="seg" role="group" aria-label="Theme">${THEMES.map(([v,n])=>`<button type="button" class="${themeChoice()===v?'active':''}" data-action="theme" data-id="${v}">${n}</button>`).join('')}</div></div>${row('phone','Install on your phone','install')}${row('download','Export a backup','export')}${row('upload','Restore a backup','import')}${row('trash','Clear older activity','trimActivity')}</div>
   ${account?`<div class="section-title">Account</div><div class="section"><button type="button" class="row" data-action="signOut"><span class="row-icon">${I('logout')}</span><span class="row-main"><b>Sign out</b><small>Removes your shared homes from this device</small></span></button><button type="button" class="row" data-action="signOutAll"><span class="row-icon">${I('logout')}</span><span class="row-main"><b>Sign out everywhere</b>${accountMeta?.sessions>1?`<small>Signed in on ${accountMeta.sessions} devices</small>`:''}</span></button><button type="button" class="row danger" data-action="deleteAccount"><span class="row-icon">${I('trash')}</span><span class="row-main"><b>Delete your account</b></span></button></div>`:''}
   <p class="foot">Flatflow · ${mode==='shared'?'Shared online':'Saved on this device'} · ${esc(syncState)} · <a href="./privacy.html" target="_blank" rel="noopener">Privacy</a></p>`;
@@ -483,15 +526,16 @@ function notificationsSheet(){
 const otherHomes=()=>listHomes(localStorage).filter(e=>mode==='welcome'||e.id!==homeEntryId({home,mode,key})).length;
 function homeList(){
   const current=mode==='welcome'?'':homeEntryId({home,mode,key});
-  return `<div class="home-list">${listHomes(localStorage).slice().reverse().map(e=>`<div class="row">${I('home')}<span class="row-main"><b>${esc(e.home.name)}</b><small>${e.mode==='shared'?'Shared home':'This device only'}${e.myId&&e.home.people?.find(p=>p.id===e.myId)?' · you are '+esc(e.home.people.find(p=>p.id===e.myId).name):''}</small></span>${e.id===current?'<span class="badge you">Open now</span>':`<button class="small-btn primary" type="button" data-action="switchHome" data-id="${esc(e.id)}" data-mutate>Open</button><button class="small-btn ghost" type="button" data-action="forgetHome" data-id="${esc(e.id)}" aria-label="Remove ${esc(e.home.name)} from this device">${I('close')}</button>`}</div>`).join('')}</div>`;
+  return `<div class="home-list">${listHomes(localStorage).slice().reverse().map(e=>`<div class="row">${I('home')}<span class="row-main"><b>${esc(e.home.name)}</b><small>${e.mode==='shared'?'Shared home':'This device only'}${e.myId&&e.home.people?.find(p=>p.id===e.myId)?' · you are '+esc(e.home.people.find(p=>p.id===e.myId).name):''}</small></span>${e.id===current?'<span class="badge you">Open now</span>':`<button class="small-btn primary" type="button" data-action="switchHome" data-id="${esc(e.id)}">Open</button><button class="small-btn ghost" type="button" data-action="forgetHome" data-id="${esc(e.id)}" aria-label="Remove ${esc(e.home.name)} from this device">${I('close')}</button>`}</div>`).join('')}</div>`;
 }
 function homesDialog(){
   rememberCurrent();
   openSheet(()=>dialog('Your homes','',`${homeList()}<div class="buttons stack"><button type="button" class="btn secondary" data-action="joinLink">${I('key')}Join with a code or link</button><button type="button" class="btn secondary" data-action="newHome">${I('plus')}Create a home</button></div>`));
 }
 function switchHome(id){
-  if(busy)return;const entry=listHomes(localStorage).find(e=>e.id===id);if(!entry)throw new Error('That home is no longer on this device.');
-  rememberCurrent();
+  const entry=listHomes(localStorage).find(e=>e.id===id);if(!entry)throw new Error('That home is no longer on this device.');
+  if(entry.id===(mode==='welcome'?'':homeEntryId({home,mode,key}))){if($('#modal').open)$('#modal').close();return;}
+  rememberCurrent();refreshing=false;
   ({home,mode,key,revision,myId,backend}=openHome(entry,BACKEND_URL||backend));
   view=home.expensesOnly&&view==='chores'?'expenses':PARENT[view]?PARENT[view]:view;choreFilter='all';expenseSearch='';expenseFilter='all';searchOpen=false;weekOffset=0;monthOffset=0;
   syncState=mode==='shared'?'Connecting…':'Saved on this device';
@@ -546,7 +590,7 @@ function render(){
   if(gated()){signInGate();return;}
   if(mode==='welcome'){welcome();return;}
   if(home.expensesOnly&&tabOf(view)==='chores')view='expenses';
-  const pages={expenses:expensesPage,chores:choresPage,activity:activityPage,account:accountPage,schedule:schedulePage,flatmates:flatmatesPage,shopping:shoppingPage,bills:billsPage,spending:spendingPage};
+  const pages={expenses:expensesPage,chores:choresPage,activity:activityPage,account:accountPage,schedule:schedulePage,flatmates:flatmatesPage,shopping:shoppingPage,bills:billsPage,spending:spendingPage,people:peoplePage};
   const page=pages[view]||expensesPage,tab=tabOf(view),sub=!!PARENT[view];
   const offline=mode==='shared'&&!['Synced','Connecting…','Saving…'].includes(syncState);
   const syncPill=offline?`<span class="sync-pill"><i></i>${syncState==='Offline'?'Offline':syncState==='Home not found'?'Not found':'Not synced'}</span>`:mode!=='shared'?`<span class="sync-pill" style="background:var(--bg-3);color:var(--muted)">This device only</span>`:'';
@@ -554,8 +598,8 @@ function render(){
   const fabs={expenses:['addExpense','Add expense'],chores:['addTask','Add chore'],flatmates:['addPerson','Add flatmate'],bills:['addBill','Add bill']};
   const fab=fabs[view]&&!(needPeople()&&view!=='flatmates')?fabs[view]:null;
   $('#app').innerHTML=`<div class="app"><aside class="rail"><div class="brand"><i>${I('home')}</i>Flatflow</div><button class="rail-home" data-action="homes" aria-label="Switch home">${I('home')}<span class="row-main"><b>${esc(home.name)}</b><small>${plural(home.people.length,home.expensesOnly?'member':'flatmate')}${otherHomes()?` · ${otherHomes()+1} homes`:''}</small></span>${I('down')}</button><nav class="rail-nav" aria-label="Main">${visibleTabs().map(([v,i,n])=>`<button data-action="tab" data-id="${v}" class="${tab===v?'active':''}">${I(i)}${n}</button>`).join('')}</nav>${fab?`<button class="btn rail-add" data-action="${fab[0]}">${I('plus')}${fab[1]}</button>`:''}<div class="rail-foot">${syncPill}${account?`<span>${esc(account.email||account.name||'')}</span>`:''}</div></aside><div style="min-width:0"><header class="bar">${title}<div class="bar-right">${sub?'':syncPill}</div></header><main class="main" id="main" tabindex="-1"><div class="page">${banners()}${page()}</div></main></div>${fab?`<button class="fab" data-action="${fab[0]}">${I('plus')}${fab[1]}</button>`:''}<nav class="tabs" aria-label="Main">${visibleTabs().map(([v,i,n])=>`<button data-action="tab" data-id="${v}" class="${tab===v?'active':''}" aria-current="${tab===v?'page':'false'}">${I(i)}${n}</button>`).join('')}</nav></div>`;
-  setBusy(busy);showGoogleButton();if(view==='account'&&account&&!accountMeta)loadAccountMeta();
   if($('#modal').open&&sheet?.live)sheet.build();
+  setBusy(busy);showGoogleButton();if(view==='account'&&account&&!accountMeta)loadAccountMeta();
   $('#shopping-form')?.addEventListener('submit',async e=>{e.preventDefault();const item=new FormData(e.target).get('item').trim();if(!item)return;if(await mutate(h=>{h.shopping=h.shopping||[];if(h.shopping.length>=60)throw new Error('The shopping list holds up to 60 items. Clear bought items first.');h.shopping.push({id:uid(),item,addedBy:myId||'',done:false});},'Added to the list'))$('#shopping-form input')?.focus();});
   document.querySelectorAll('[data-shopping]').forEach(el=>el.addEventListener('change',()=>mutate(h=>{const i=(h.shopping||[]).find(i=>i.id===el.dataset.shopping);if(i)i.done=el.checked;},el.checked?'Marked as bought':'Back on the list')));
   $('#expense-search')?.addEventListener('input',e=>{const position=e.target.selectionStart;expenseSearch=e.target.value;render();$('#expense-search').focus();$('#expense-search').setSelectionRange(position,position);});
@@ -582,16 +626,19 @@ async function connectClient(){if(!backend)throw new Error('Can’t reach Flatfl
   await client.ready;}
 async function refresh(force=false){if(mode!=='shared'||gated()||busy||refreshing||(!force&&document.visibilityState==='hidden'))return;refreshing=true;const requestedKey=key,requestedRevision=revision;try{if(!client)await connectClient();const r=await client.call({action:'read',key,revision:force?-1:revision});if(key!==requestedKey||busy||revision!==requestedRevision)return;if(r.home){home=validateHome(r.home);revision=r.revision;if(!home.people.some(p=>p.id===myId))myId='';persist();}const changed=syncState!=='Synced'||!!r.home;syncState='Synced';syncError='';if(changed)render();identify();sharePushKeys();if((home.bills||[]).some(b=>!b.paused&&b.due<=iso()))setTimeout(()=>mutate(()=>{},'Recurring bills added'),0);}catch(err){syncError=err.message;syncState=/Household not found/.test(err.message)?'Home not found':navigator.onLine?'Connection needs attention':'Offline';client?.close();client=null;render();}finally{refreshing=false;}}
 async function mutate(fn,message='Saved'){
-  if(busy)return false;if(gated()){render();return false;}if(mode==='shared'&&syncState!=='Synced'){toast('Reconnect to your home before making changes.',true);return false;}setBusy(true);const draft=structuredClone(home);let sending=false;
+  if(busy)return false;if(gated()){render();return false;}if(mode==='shared'&&syncState!=='Synced'){toast('Reconnect to your home before making changes.',true);return false;}setBusy(true);const draft=structuredClone(home),writingKey=key,writingMode=mode;let sending=false;
+  const switched=()=>key!==writingKey||mode!==writingMode;
   try{rollOver(draft);fn(draft);validateHome(draft);if(mode==='shared'){
     if(!navigator.onLine)throw new Error('You’re offline. Reconnect to save a shared change.');
     if(!client)await connectClient();syncState='Saving…';sending=true;
-    const result=await client.call({action:'write',key,revision,op:uid(),home:draft});
+    const result=await client.call({action:'write',key:writingKey,revision,op:uid(),home:draft});
+    if(switched())return true;
     if(result.conflict){try{localStorage.setItem('flatflow-conflict-draft',JSON.stringify(draft));}catch{}home=validateHome(result.home);revision=result.revision;persist();syncState='Synced';render();sheet=null;dialog('A flatmate got there first','Their change was saved and yours wasn’t applied over it. The latest version is now loaded, so try again.','<button type="button" class="link" data-action="exportDraft">Download my attempted change</button>','Got it',async()=>$('#modal').close());return false;}
     home=validateHome(result.home);revision=result.revision;syncState='Synced';
   }else home=draft;persist();render();toast(message);return true;
   }catch(err){
     // A change Flatflow or the server refused leaves the connection fine; only a failed request or a missing home breaks it.
+    if(switched())return false;
     if(mode==='shared'&&sending){syncError=err.message;syncState=/Household not found/.test(err.message)?'Home not found':(err instanceof TypeError||/fetch|network|timed? ?out|offline|reach|sync failed|connection closed/i.test(err.message))?'Connection needs attention':'Synced';}
     toast(err.message,true);return false;}finally{setBusy(false);if(mode==='shared')render();}
 }
@@ -734,7 +781,7 @@ async function notifications(){
   setBusy(true);try{
     await connectClient();const config=await client.call({action:'pushConfig',key});
     if(!config.enabled||!config.publicKey)throw new Error('The notification service is not ready yet.');
-    const reg=await navigator.serviceWorker.ready;let sub=await reg.pushManager.getSubscription();
+    const reg=await Promise.race([navigator.serviceWorker.ready,new Promise((_,reject)=>setTimeout(()=>reject(new Error('Flatflow’s background worker isn’t ready yet. Reload the app and try again.')),8000))]);let sub=await reg.pushManager.getSubscription();
     if(!sub){const raw=atob(config.publicKey.replace(/-/g,'+').replace(/_/g,'/'));sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:Uint8Array.from(raw,c=>c.charCodeAt(0))});}
     await client.call({action:'subscribePush',key,person:myId,endpoint:sub.endpoint,keys:sub.toJSON().keys});
     savePushHomes({...pushHomes(),[home.id]:myId});render();toast('Notifications are on. Send yourself a test.');
@@ -783,7 +830,7 @@ const actions={
   theme:setTheme,inviteCode,copyCode:async code=>{try{await navigator.clipboard.writeText(code);toast('Code copied.');}catch{toast('Code: '+code);}},joinLink,signOut,homes:homesDialog,switchHome,forgetHome:forgetHomeDialog,homeDetails,notificationsSheet,
   chooseMe:()=>{if(!home.people.length){personForm();return;}sheet=null;dialog('Which one is you?','Saved on this device. It sets your chores, your balance and your reminders.',`<div class="menu">${home.people.map(p=>`<button type="button" data-action="setMe" data-id="${esc(p.id)}">${avatar(p)}${esc(p.name)}${p.id===myId?'<small>Current</small>':''}</button>`).join('')}</div>`);},
   setMe:async id=>{try{if(myId&&myId!==id&&pushHomes()[home.id])await disablePush();myId=id;persist();$('#modal').open&&$('#modal').close();render();toast(`Hi ${home.people.find(p=>p.id===id)?.name||''}. This device now knows it’s you.`);}catch(err){toast(err.message,true);}},
-  expenseMenu,settleUp:settleSheet,balances:balancesSheet,fairShare:fairShareSheet,chore:choreSheet,
+  expenseMenu,settleUp:settleSheet,balances:balancesSheet,person:personSheet,fairShare:fairShareSheet,chore:choreSheet,
   toggleSearch:()=>{searchOpen=!searchOpen;if(!searchOpen){expenseSearch='';expenseFilter='all';}render.focusSearch=searchOpen;render();},
   choreFilter:f=>{choreFilter=f;render();},
   claimMe:id=>claimPerson(id||''),switchMe:()=>whoDialog(home.people.filter(p=>!p.claim||p.id===myId).filter(p=>p.id!==myId)),
