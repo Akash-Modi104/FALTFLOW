@@ -1,5 +1,5 @@
-const CACHE='flatflow-v28';
-const ASSETS=['./','./index.html','./style.css?v=28','./app.js?v=28','./core.js?v=28','./sync.js?v=28','./session.js?v=28','./config.js?v=28','./splitwise.js?v=28','./invite.js?v=28','./xlsx.js?v=28','./privacy.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
+const CACHE='flatflow-v29';
+const ASSETS=['./','./index.html','./style.css?v=29','./app.js?v=29','./core.js?v=29','./sync.js?v=29','./session.js?v=29','./config.js?v=29','./splitwise.js?v=29','./invite.js?v=29','./xlsx.js?v=29','./privacy.html','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting()));});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('flatflow-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});
 self.addEventListener('fetch',e=>{const u=new URL(e.request.url);if(u.origin!==location.origin||e.request.method!=='GET')return;e.respondWith(fetch(e.request,{cache:'no-cache'}).then(r=>{if(r.ok){const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));}return r;}).catch(async()=>await caches.match(e.request)||((e.request.mode==='navigate')?await caches.match('./index.html'):Response.error())));});
