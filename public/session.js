@@ -1,4 +1,4 @@
-import {emptyHome,validateHome} from './core.js?v=30';
+import {emptyHome,validateHome} from './core.js?v=31';
 export const STORAGE='flatflow-v1', CONNECTION='flatflow-connection-v1';
 export const validKey=k=>typeof k==='string'&&/^[a-f0-9]{64}$/.test(k);
 export function restoreSession(storage,backend=''){
