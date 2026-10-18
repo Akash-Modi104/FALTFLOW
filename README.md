@@ -18,12 +18,16 @@ Expenses splits shared costs Splitwise-style. Log who paid (one person or severa
 
 ## Personal sign-in
 
-Sign-in with Google is required once `GOOGLE_CLIENT_ID` is set on the backend: until someone signs in, the app shows only the sign-in screen, and the backend refuses every home action (read, write, create, notifications, invite codes) without a valid session. Opening a home with its invitation link, invite code or a device that already had it adds the home to the signed-in account, so flatmates who joined by link before sign-in existed just sign in once and keep everything. An account remembers every home the person belongs to and who they are in each, so their homes appear on any phone or computer they sign in on. Accounts and sessions are stored privately on the backend (only hashes of Google ids and session tokens); Flatflow never sees Google passwords, and only verified Google emails can sign in. Without `GOOGLE_CLIENT_ID` the app works with invitation links alone, as before.
+Flatflow has three free sign-in methods: Google, GitHub, and a six-digit code sent by email. Each one appears on the sign-in screen once the owner configures it. Whichever way a person signs in, the verified email address decides the account, so signing in with Google one day and an emailed code the next opens the same homes. Once any method is configured, sign-in is required: the app shows only the sign-in screen until someone signs in, and the backend refuses every home action (read, write, create, notifications, invite codes) without a valid session. Opening a home with its invitation link, invite code or a device that already had it adds the home to the signed-in account, so homes follow people to every phone and computer. Settings → Your account shows the methods in use, signs out this device or every device, and deletes the account (homes stay with the flatmates). Only hashes of sign-in ids, email addresses, codes and session tokens are stored; Flatflow never sees a password. Sign-in attempts are rate limited per address and per email, codes expire after 10 minutes and allow 5 tries. Without any method configured the app works with invitation links alone.
 
-To switch it on (owner, once):
-1. In Google Cloud Console → APIs & Services → OAuth consent screen, create an External app with your contact email, then publish it. Only the basic `openid`, `email` and `profile` scopes are used, so Google verification isn't needed.
-2. Under Credentials → Create credentials → OAuth client ID → Web application, add `https://akash-modi104.github.io` (and `http://localhost:4173` for development) as Authorized JavaScript origins. Copy the client ID.
-3. Store it in D1: `npx wrangler@4.151.1 d1 execute flatflow --remote --command "INSERT OR REPLACE INTO settings (name, value) VALUES ('GOOGLE_CLIENT_ID', 'your-client-id')"`. Until then the app simply shows that sign-in isn't switched on yet.
+Each method is switched on by storing its credentials in the D1 `settings` table (Worker secrets with the same names override the table), for example:
+`npx wrangler@4.151.1 d1 execute flatflow --remote --command "INSERT OR REPLACE INTO settings (name, value) VALUES ('GOOGLE_CLIENT_ID', 'your-client-id')"`
+
+- **Google** (`GOOGLE_CLIENT_ID`): in Google Cloud Console → APIs & Services → OAuth consent screen, create an External app and publish it (only `openid`, `email` and `profile` are used, so no verification is needed). Under Credentials → OAuth client ID → Web application, add `https://akash-modi104.github.io` (and `http://localhost:4173` for development) as Authorized JavaScript origins.
+- **Email code** (`BREVO_API_KEY`, `BREVO_SENDER`): create a free Brevo account (300 emails a day, no card), verify the sender address you want codes to come from (Senders & IPs → Add a sender), then create an API key (SMTP & API → API keys). `BREVO_SENDER` is that verified address.
+- **GitHub** (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`): on GitHub, Settings → Developer settings → OAuth Apps → New OAuth App (free). Homepage URL and Authorization callback URL are both `https://akash-modi104.github.io/FALTFLOW/`. Copy the client ID and generate a client secret. The secret stays on the worker; the browser only ever sees the one-time code GitHub hands back.
+
+Run `npx wrangler@4.151.1 d1 execute flatflow --remote --file worker/schema.sql` once after updating, so the `logins`, `codes` and `limits` tables exist.
 
 ## Phone notifications
 
@@ -55,4 +59,4 @@ npm run dev
 
 GitHub Actions tests and deploys `dist` to Pages. Enable Pages with GitHub Actions as source. Public configuration is in `public/config.js`; never put household keys or private push keys there.
 
-Automated tests cover rotation, deletion safeguards, expenses, invite codes, the worker's sync conflicts, sign-in, private subscriptions, endpoint validation, VAPID signatures and push encryption. The worker tests run against Node's built-in SQLite.
+Automated tests cover rotation, deletion safeguards, expenses, invite codes, the worker's sync conflicts, every sign-in method and account linking, rate limits, private subscriptions, endpoint validation, VAPID signatures and push encryption. The worker tests run against Node's built-in SQLite.

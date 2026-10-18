@@ -1,11 +1,13 @@
 // Flatflow backend for Cloudflare Workers + D1, on the free plan.
-// Invitation keys, session tokens and Google account ids are only
+// Invitation keys, session tokens, sign-in ids and email addresses are only
 // ever stored as SHA-256 hashes.
 import {validateHome, rollOver, away, assignee} from '../public/core.js';
 import {vapidSigner, sendPush, pushEndpoint} from './webpush.js';
 
 export const MAX_HOMES = 200, MAX_DEVICES = 300, SESSION_DAYS = 90, INVITE_DAYS = 7, MAX_INVITES = 1000;
-export const ACCOUNT_ACTIONS = ['authConfig','signIn','myHomes','linkHome','unlinkHome','signOut'];
+export const ACCOUNT_ACTIONS = ['authConfig','signIn','emailCode','emailVerify','githubSignIn','myHomes','linkHome','unlinkHome','signOut','signOutAll','deleteAccount','accountInfo'];
+// Sign-in attempts per address per minute, before the server stops answering them.
+const AUTH_LIMIT = 20, CODE_MINUTES = 10, CODE_TRIES = 5;
 const PUSH_ACTIONS = ['pushConfig','subscribePush','unsubscribePush','testPush'];
 
 export async function hash(s) {
@@ -18,9 +20,11 @@ const token = () => [...crypto.getRandomValues(new Uint8Array(32))].map(b=>b.toS
 const validKey = k => typeof k==='string' && /^[a-f0-9]{64}$/.test(k);
 const fail = message => {const e = new Error(message);e.expose = true;throw e;};
 
-// Push keys and the Google client ID kept in the settings table. Worker secrets
-// with the same names take precedence.
-export const SETTINGS = ['VAPID_PRIVATE','VAPID_PUBLIC','GOOGLE_CLIENT_ID'];
+// Push keys and sign-in credentials kept in the settings table. Worker secrets
+// with the same names take precedence. BREVO_* switch on email codes, GITHUB_*
+// switch on GitHub sign-in; each method appears in the app once configured.
+export const SETTINGS = ['VAPID_PRIVATE','VAPID_PUBLIC','GOOGLE_CLIENT_ID','BREVO_API_KEY','BREVO_SENDER','GITHUB_CLIENT_ID','GITHUB_CLIENT_SECRET'];
+const normalizeEmail = e => {const v = String(e || '').trim().toLowerCase();if (v.length > 200 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) fail('Enter a valid email address.');return v;};
 let cachedSettings = null;
 export async function withSettings(env, maxAge = 60000) {
   if (!cachedSettings || cachedSettings.db !== env.DB || Date.now() - cachedSettings.at > maxAge) {
@@ -52,7 +56,8 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     return await saveHome(entry, previous, 'rollover-' + crypto.randomUUID()) ? entry : readHome(entry.hash);
   };
 
-  async function rpc(request) {
+  async function rpc(request, {ip = ''} = {}) {
+    if (request && ['signIn','emailCode','emailVerify','githubSignIn','redeemInvite'].includes(request.action)) await limit(request.action + ':' + ip, AUTH_LIMIT, 60000);
     if (request && ACCOUNT_ACTIONS.includes(request.action)) return accountOperation(request);
     const member = await requireMember(request);
     if (request && request.action === 'redeemInvite') return redeemInvite(request);
@@ -93,16 +98,31 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     fail('Unsupported operation.');
   }
 
-  // Once Google sign-in is configured, every home action needs a signed-in
+  // Once any sign-in method is configured, every home action needs a signed-in
   // account. Opening a home with its key (link, code or a device that already
   // had it) adds the home to that account.
+  const emailEnabled = () => !!env.BREVO_API_KEY && !!env.BREVO_SENDER;
+  const githubEnabled = () => !!env.GITHUB_CLIENT_ID && !!env.GITHUB_CLIENT_SECRET;
+  const authEnabled = () => !!env.GOOGLE_CLIENT_ID || emailEnabled() || githubEnabled();
+  // Sessions name their account as 'a:' + id; ones issued before sign-in methods
+  // were added still carry the Google id and are moved over at the next sign-in.
+  const sessionAccount = s => s.sub.startsWith('a:') ? s.sub.slice(2) : hash(s.sub);
   async function requireMember(request) {
-    if (!env.GOOGLE_CLIENT_ID) return null;
+    if (!authEnabled()) return null;
     const session = validKey(String(request?.session || '')) ? await db.prepare('SELECT sub, exp FROM sessions WHERE id = ?').bind(await hash(request.session)).first() : null;
     if (!session || session.exp < Date.now()) fail('Sign in to continue.');
-    const id = await hash(session.sub), account = await readAccount(id);
+    const id = await sessionAccount(session), account = await readAccount(id);
     if (!account) fail('Sign in to continue.');
     return {id, account};
+  }
+  // A small counter per key and minute, so guessing codes or hammering sign-in gets nowhere.
+  async function limit(key, max, windowMs) {
+    const id = await hash('limit:' + key), now = Date.now();
+    const row = await db.prepare('SELECT n, reset FROM limits WHERE id = ?').bind(id).first();
+    if (row && row.reset > now && row.n >= max) fail('Too many attempts. Wait a minute and try again.');
+    if (row && row.reset > now) await db.prepare('UPDATE limits SET n = n + 1 WHERE id = ?').bind(id).run();
+    else await db.prepare('INSERT OR REPLACE INTO limits (id, n, reset) VALUES (?, 1, ?)').bind(id, now + windowMs).run();
+    if (Math.random() < 0.02) await db.prepare('DELETE FROM limits WHERE reset < ?').bind(now).run();
   }
   async function linkMember(member, key) {
     if (!member || member.account.homes.some(x=>x.key===key)) return;
@@ -130,19 +150,37 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     return {ok:true, sealed:row.sealed};
   }
 
-  // Personal accounts through Google sign-in. Google verifies the person; the
+  // Personal accounts. Google, GitHub or an emailed code verifies the person; the
   // backend then issues its own long-lived session so phones stay signed in.
+  // One person is one account whichever way they sign in: methods are tied
+  // together by the verified email address.
   async function accountOperation(request) {
-    if (request.action === 'authConfig') {const id = env.GOOGLE_CLIENT_ID || '';return {enabled:!!id, clientId:id};}
+    if (request.action === 'authConfig') return {enabled:authEnabled(), clientId:env.GOOGLE_CLIENT_ID || '', email:emailEnabled(), github:githubEnabled() ? env.GITHUB_CLIENT_ID : ''};
     if (request.action === 'signIn') return signIn(request.idToken);
+    if (request.action === 'emailCode') return emailCode(request);
+    if (request.action === 'emailVerify') return emailVerify(request);
+    if (request.action === 'githubSignIn') return githubSignIn(request);
     const session = validKey(String(request.session || '')) ? await db.prepare('SELECT id, sub, exp FROM sessions WHERE id = ?').bind(await hash(request.session)).first() : null;
     if (!session || session.exp < Date.now()) {
       if (session) await db.prepare('DELETE FROM sessions WHERE id = ?').bind(session.id).run();
       fail('Your sign-in has expired. Sign in again.');
     }
     if (request.action === 'signOut') {await db.prepare('DELETE FROM sessions WHERE id = ?').bind(session.id).run();return {ok:true};}
-    const accountId = await hash(session.sub), account = await readAccount(accountId);
+    const accountId = await sessionAccount(session), account = await readAccount(accountId);
     if (!account) fail('Your sign-in has expired. Sign in again.');
+    if (request.action === 'signOutAll') {await db.prepare('DELETE FROM sessions WHERE sub = ? OR sub = ?').bind('a:' + accountId, session.sub).run();return {ok:true};}
+    if (request.action === 'deleteAccount') {
+      // Homes stay with the flatmates; only this person's account, sign-ins and sessions go.
+      await db.prepare('DELETE FROM sessions WHERE sub = ? OR sub = ?').bind('a:' + accountId, session.sub).run();
+      await db.prepare('DELETE FROM logins WHERE account = ?').bind(accountId).run();
+      await db.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId).run();
+      return {ok:true};
+    }
+    if (request.action === 'accountInfo') {
+      const {results} = await db.prepare('SELECT provider FROM logins WHERE account = ?').bind(accountId).all();
+      const sessions = (await db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE (sub = ? OR sub = ?) AND exp > ?').bind('a:' + accountId, session.sub, Date.now()).first()).n;
+      return {ok:true, account:{name:account.name, email:account.email}, providers:[...new Set(results.map(r=>r.provider))], sessions};
+    }
     if (request.action === 'linkHome') {
       if (!validKey(String(request.key || ''))) fail('Invalid household invitation.');
       const found = await readHome(await hash(request.key));
@@ -168,15 +206,81 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     const claims = await response.json();
     if (claims.aud !== clientId || !['accounts.google.com','https://accounts.google.com'].includes(claims.iss) || Number(claims.exp) * 1000 < Date.now() || !/^\d{1,40}$/.test(String(claims.sub))) fail('Google sign-in failed. Try again.');
     if (String(claims.email_verified) !== 'true') fail('Verify your Google email address, then sign in again.');
-    const sub = String(claims.sub), accountId = await hash(sub), account = await readAccount(accountId) || {homes:[]};
-    account.email = String(claims.email || '').slice(0,200);account.name = String(claims.name || claims.email || '').slice(0,100);
+    const sub = String(claims.sub), email = normalizeEmail(claims.email);
+    const {accountId, account} = await resolveAccount('google', sub, email, String(claims.name || '').slice(0,100));
+    // Sessions from before sign-in methods were added still carry the Google id.
+    await db.prepare('UPDATE sessions SET sub = ? WHERE sub = ?').bind('a:' + accountId, sub).run();
+    return issueSession(accountId, account);
+  }
+  // Finds the account for a sign-in: the same method seen before, else the same
+  // verified email (through another method, or on an account from before methods
+  // were tracked), else a new one. Then remembers both ways to find it.
+  async function resolveAccount(provider, subject, email, name) {
+    const loginId = await hash(provider + ':' + subject), emailId = await hash('email:' + email);
+    const find = async id => (await db.prepare('SELECT account FROM logins WHERE id = ?').bind(id).first())?.account;
+    let accountId = await find(loginId) || await find(emailId);
+    // Accounts from before methods were tracked have no login rows yet; they are found by their email.
+    if (!accountId) accountId = (await db.prepare("SELECT id FROM accounts WHERE json_extract(data, '$.email') = ? LIMIT 1").bind(email).first())?.id;
+    if (!accountId && provider === 'google' && await readAccount(await hash(subject))) accountId = await hash(subject);
+    if (!accountId) accountId = await hash('account:' + token());
+    const account = await readAccount(accountId) || {homes:[]};
+    account.email = email;
+    if (name) account.name = name; else if (!account.name) account.name = email.split('@')[0].slice(0,100);
     await saveAccount(accountId, account);
-    // Keep at most 10 active sessions per account and clean up expired ones.
+    await db.prepare('INSERT OR REPLACE INTO logins (id, account, provider) VALUES (?, ?, ?)').bind(loginId, accountId, provider).run();
+    await db.prepare('INSERT OR REPLACE INTO logins (id, account, provider) VALUES (?, ?, ?)').bind(emailId, accountId, 'email').run();
+    return {accountId, account};
+  }
+  // Keep at most 10 active sessions per account and clean up expired ones.
+  async function issueSession(accountId, account) {
+    const sub = 'a:' + accountId;
     await db.prepare('DELETE FROM sessions WHERE exp < ?').bind(Date.now()).run();
     await db.prepare('DELETE FROM sessions WHERE sub = ? AND id NOT IN (SELECT id FROM sessions WHERE sub = ? ORDER BY exp DESC LIMIT 9)').bind(sub, sub).run();
     const session = token();
     await db.prepare('INSERT INTO sessions (id, sub, exp) VALUES (?, ?, ?)').bind(await hash(session), sub, Date.now() + SESSION_DAYS * 864e5).run();
     const result = await accountResult(account);result.session = session;return result;
+  }
+  // Email sign-in: a six-digit code sent through Brevo's free plan. The code is
+  // kept hashed with the address, expires after ten minutes and allows five tries.
+  async function emailCode(request) {
+    if (!emailEnabled()) fail('Email sign-in is not set up for this Flatflow yet.');
+    const email = normalizeEmail(request.email);
+    await limit('emailCode:' + email, 1, 60000);
+    const code = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
+    await db.prepare('INSERT OR REPLACE INTO codes (id, code, exp, tries) VALUES (?, ?, ?, 0)').bind(await hash('code:' + email), await hash(email + '|' + code), Date.now() + CODE_MINUTES * 60000).run();
+    const response = await fetcher('https://api.brevo.com/v3/smtp/email', {method:'POST', headers:{'api-key':env.BREVO_API_KEY, 'Content-Type':'application/json', 'Accept':'application/json'}, body:JSON.stringify({
+      sender:{name:'Flatflow', email:env.BREVO_SENDER}, to:[{email}], subject:code + ' is your Flatflow sign-in code',
+      textContent:'Your Flatflow sign-in code is ' + code + '. It works for ' + CODE_MINUTES + ' minutes.\n\nIf you didn’t ask for it, you can ignore this email; nobody can sign in without the code.'})});
+    if (response.status < 200 || response.status >= 300) fail('The sign-in email could not be sent. Try again in a minute.');
+    return {ok:true, sent:true};
+  }
+  async function emailVerify(request) {
+    const email = normalizeEmail(request.email), code = String(request.code || '').replace(/\D/g, ''), id = await hash('code:' + email);
+    const row = await db.prepare('SELECT code, exp, tries FROM codes WHERE id = ?').bind(id).first();
+    if (!row || row.exp < Date.now()) fail('That code has expired. Ask for a new one.');
+    if (row.tries >= CODE_TRIES) {await db.prepare('DELETE FROM codes WHERE id = ?').bind(id).run();fail('Too many attempts. Ask for a new code.');}
+    if (code.length !== 6 || row.code !== await hash(email + '|' + code)) {await db.prepare('UPDATE codes SET tries = tries + 1 WHERE id = ?').bind(id).run();fail('That code isn’t right. Check the email and try again.');}
+    await db.prepare('DELETE FROM codes WHERE id = ?').bind(id).run();
+    const {accountId, account} = await resolveAccount('email', email, email, '');
+    return issueSession(accountId, account);
+  }
+  // GitHub sign-in: the app sends the one-time code GitHub gave it; the secret
+  // never leaves the server. Only a verified GitHub email can sign in.
+  async function githubSignIn(request) {
+    if (!githubEnabled()) fail('GitHub sign-in is not set up for this Flatflow yet.');
+    const code = String(request.code || ''), redirect = String(request.redirectUri || '');
+    if (!/^[\w-]{10,200}$/.test(code) || !/^https?:\/\/[\w.:-]+\/[\w./-]*$/.test(redirect)) fail('GitHub sign-in failed. Try again.');
+    const headers = {'Accept':'application/json', 'Content-Type':'application/json', 'User-Agent':'Flatflow'};
+    const exchange = await fetcher('https://github.com/login/oauth/access_token', {method:'POST', headers, body:JSON.stringify({client_id:env.GITHUB_CLIENT_ID, client_secret:env.GITHUB_CLIENT_SECRET, code, redirect_uri:redirect})});
+    const accessToken = exchange.status === 200 ? (await exchange.json()).access_token : '';
+    if (!accessToken) fail('GitHub sign-in failed. Try again.');
+    const api = async path => {const r = await fetcher('https://api.github.com' + path, {headers:{...headers, 'Authorization':'Bearer ' + accessToken}});return r.status === 200 ? r.json() : null;};
+    const user = await api('/user'), emails = await api('/user/emails') || [];
+    if (!user || !/^\d{1,20}$/.test(String(user.id))) fail('GitHub sign-in failed. Try again.');
+    const verified = emails.find(e=>e.primary && e.verified) || emails.find(e=>e.verified);
+    if (!verified) fail('Add a verified email address to your GitHub account, then try again.');
+    const {accountId, account} = await resolveAccount('github', String(user.id), normalizeEmail(verified.email), String(user.name || user.login || '').slice(0,100));
+    return issueSession(accountId, account);
   }
   const readAccount = async id => {const row = await db.prepare('SELECT data FROM accounts WHERE id = ?').bind(id).first();return row ? JSON.parse(row.data) : null;};
   const saveAccount = (id, account) => db.prepare('INSERT INTO accounts (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data').bind(id, JSON.stringify(account)).run();

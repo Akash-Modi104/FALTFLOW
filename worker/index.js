@@ -3,8 +3,9 @@ import {createBackend, withSettings} from './backend.js';
 const ALLOWED_ORIGINS = ['https://akash-modi104.github.io','http://localhost:4173','http://127.0.0.1:4173'];
 const MAX_BODY = 256 * 1024;
 
+const SECURITY = {'X-Content-Type-Options':'nosniff', 'Referrer-Policy':'no-referrer', 'X-Frame-Options':'DENY', 'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'", 'Strict-Transport-Security':'max-age=31536000; includeSubDomains'};
 const json = (data, status, origin) => new Response(JSON.stringify(data), {status, headers:{
-  'Content-Type':'application/json', 'Cache-Control':'no-store', 'Vary':'Origin',
+  'Content-Type':'application/json', 'Cache-Control':'no-store', 'Vary':'Origin', ...SECURITY,
   ...(origin ? {'Access-Control-Allow-Origin':origin, 'Access-Control-Allow-Methods':'POST', 'Access-Control-Allow-Headers':'Content-Type', 'Access-Control-Max-Age':'86400'} : {})
 }});
 // Messages from Flatflow's own checks are shown to people; storage errors are not.
@@ -19,13 +20,13 @@ async function readBody(request) {
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url), origin = request.headers.get('Origin') || '';
-    if (url.pathname !== '/rpc') return new Response('Flatflow backend is ready. Open the Flatflow app to connect.', {headers:{'Content-Type':'text/plain'}});
+    if (url.pathname !== '/rpc') return new Response('Flatflow backend is ready. Open the Flatflow app to connect.', {headers:{'Content-Type':'text/plain', ...SECURITY}});
     if (!ALLOWED_ORIGINS.includes(origin)) return json({error:'Open Flatflow from its own address.'}, 403);
     if (request.method === 'OPTIONS') return new Response(null, {status:204, headers:json({}, 200, origin).headers});
     if (request.method !== 'POST') return json({error:'Unsupported request.'}, 405, origin);
     try {
       const backend = createBackend(await withSettings(env), {waitUntil:p => ctx.waitUntil(p)});
-      return json(await backend.rpc(await readBody(request)), 200, origin);
+      return json(await backend.rpc(await readBody(request), {ip:request.headers.get('CF-Connecting-IP') || ''}), 200, origin);
     } catch (err) {
       if (!err?.expose) console.log('Request failed: ' + err?.stack);
       return json({error:publicMessage(err)}, 400, origin);

@@ -1,12 +1,12 @@
-import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=25';
-import {MAX_EXPENSES,postDueBills,splitAmount,expenseBalances,settlements,pairwiseDebts,addExpense,editExpense,addComment,paidShares,expenseCurrency,currenciesInUse,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,nextDue,away,assignee,advance,emptyHome,demoHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=25';
-import {createSync} from './sync.js?v=25';
-import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=25';
-import {BACKEND_URL} from './config.js?v=25';
-import {writeXlsx,readXlsx,rowsToCsv} from './xlsx.js?v=25';
-import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=25';
+import {STORAGE,restoreSession,saveSession,validKey,listHomes,rememberHome,forgetHome,openHome,homeEntryId} from './session.js?v=26';
+import {MAX_EXPENSES,postDueBills,splitAmount,expenseBalances,settlements,pairwiseDebts,addExpense,editExpense,addComment,paidShares,expenseCurrency,currenciesInUse,removeExpense,clearSettledExpenses,removePerson,uid,iso,date,addDays,nextDue,away,assignee,advance,emptyHome,demoHome,validateHome,record,complete,rollOver,skip,schedule,calendar} from './core.js?v=26';
+import {createSync} from './sync.js?v=26';
+import {readSplitwise,splitwiseExpenses,importSplitwise} from './splitwise.js?v=26';
+import {BACKEND_URL} from './config.js?v=26';
+import {writeXlsx,readXlsx,rowsToCsv} from './xlsx.js?v=26';
+import {makeCode,normalizeCode,inviteId,sealKey,openKey} from './invite.js?v=26';
 
-const icons={home:'<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',check:'<path d="m5 12 4 4 10-10"/>',tasks:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h6"/>',calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',people:'<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 5"/>',settings:'<path d="m9 3 1 3h4l1-3 4 3-2 3 2 3 2 1-2 5-3-1-3 2-1 3H8l-1-3-3-2-2-3 3-2 1-3-2-3Z"/><circle cx="12" cy="12" r="3"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',repeat:'<path d="M4 8h14l-3-3M20 16H6l3 3M20 8v4M4 16v-4"/>',plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="M5 12h14m-5-5 5 5-5 5"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',bell:'<path d="M5 17h14l-2-4V8a5 5 0 0 0-10 0v5Zm5 3h4"/>',leaf:'<path d="M5 18C1 6 12 3 21 3c0 12-6 17-13 14M5 21 16 9"/>',share:'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m9 10 6-4m-6 8 6 4"/>',download:'<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4M18 4h4"/>',history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l4 2"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',wallet:'<path d="M4 7h15a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a2 2 0 0 1 2-2h11v3"/><path d="M16 13.5h.01"/>'};
+const icons={github:'<path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.8c-2.8.6-3.4-1.2-3.4-1.2-.4-1.1-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .9.1-.7.4-1.1.6-1.4-2.2-.2-4.6-1.1-4.6-5a3.9 3.9 0 0 1 1-2.7 3.6 3.6 0 0 1 .1-2.6s.9-.3 2.8 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.8-1 2.8-1a3.6 3.6 0 0 1 .1 2.6 3.9 3.9 0 0 1 1 2.7c0 3.9-2.4 4.8-4.6 5 .4.3.7.9.7 1.9V21c0 .3.2.6.7.5A10 10 0 0 0 12 2Z"/>',mail:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>',home:'<path d="m3 10 9-7 9 7v10H3Z"/><path d="M9 20v-7h6v7"/>',grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',check:'<path d="m5 12 4 4 10-10"/>',tasks:'<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9zM9 12h6M9 16h6"/>',calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',people:'<circle cx="9" cy="8" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M17 5a3 3 0 0 1 0 6M18 15a5 5 0 0 1 3 5"/>',settings:'<path d="m9 3 1 3h4l1-3 4 3-2 3 2 3 2 1-2 5-3-1-3 2-1 3H8l-1-3-3-2-2-3 3-2 1-3-2-3Z"/><circle cx="12" cy="12" r="3"/>',clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',repeat:'<path d="M4 8h14l-3-3M20 16H6l3 3M20 8v4M4 16v-4"/>',plus:'<path d="M12 5v14M5 12h14"/>',arrow:'<path d="M5 12h14m-5-5 5 5-5 5"/>',close:'<path d="m6 6 12 12M18 6 6 18"/>',bell:'<path d="M5 17h14l-2-4V8a5 5 0 0 0-10 0v5Zm5 3h4"/>',leaf:'<path d="M5 18C1 6 12 3 21 3c0 12-6 17-13 14M5 21 16 9"/>',share:'<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m9 10 6-4m-6 8 6 4"/>',download:'<path d="M12 3v12m-5-5 5 5 5-5M4 17v4h16v-4"/>',spark:'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5ZM20 2v4M18 4h4"/>',history:'<path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l4 2"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',moon:'<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',monitor:'<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>',wallet:'<path d="M4 7h15a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a2 2 0 0 1 2-2h11v3"/><path d="M16 13.5h.01"/>'};
 const I=n=>`<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${icons[n]||icons.home}</svg>`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const initials=s=>s.trim().split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();
@@ -18,7 +18,7 @@ const cents=v=>Math.round(Number(String(v).replace(',','.'))*100);
 const frequency=t=>t.every===1?({day:'Daily',week:'Weekly',month:'Monthly'})[t.unit]:`Every ${t.every} ${t.unit}s`;
 const $=s=>document.querySelector(s);
 let home,mode='welcome',key='',revision=0,myId='',backend=BACKEND_URL,client=null,view='dashboard',filter='all',search='',weekOffset=0,busy=false,syncState='Not connected',syncError='',deferredInstall=null,registration=null;
-let account=null,authInfo=null,linked={};try{account=JSON.parse(localStorage.getItem('flatflow-account')||'null');}catch{}
+let account=null,authInfo=null,linked={},emailPending='',accountMeta=null;try{account=JSON.parse(localStorage.getItem('flatflow-account')||'null');}catch{}
 let storageOK=true,refreshing=false,scheduleMode='week',schedulePerson='',monthOffset=0;
 try{({home,mode,key,revision,myId,backend,storageOK}=restoreSession(localStorage,BACKEND_URL));}catch{home=emptyHome('Your household');storageOK=false;}
 function rememberCurrent(){try{rememberHome(localStorage,{home,mode,key,revision,myId,backend});}catch{}}
@@ -368,9 +368,9 @@ const gated=()=>!account&&authInfo?.enabled!==false;
 async function loadAuthConfig(){
   if(authInfo&&!authInfo.error)return;
   if(!backend){authInfo={enabled:false,clientId:''};return afterAuth();}
-  try{await connectClient();const r=await client.call({action:'authConfig'});authInfo={enabled:!!r.enabled&&!!r.clientId,clientId:r.clientId||''};}
+  try{await connectClient();const r=await client.call({action:'authConfig'});authInfo={enabled:!!r.enabled,clientId:r.clientId||'',email:!!r.email,github:r.github||''};}
   catch(err){authInfo=/Unsupported/.test(err.message)?{enabled:false,clientId:''}:{enabled:null,error:true};} // Older backends don't support accounts.
-  render();if(account&&authInfo.enabled)syncAccount();afterAuth();
+  render();if(account&&authInfo.enabled)syncAccount();if(!account&&await githubReturn())return;afterAuth();
 }
 // Opens a pending invitation, or syncs the open home, once nothing waits on sign-in.
 function afterAuth(){
@@ -381,16 +381,46 @@ function afterAuth(){
 let googleLoading=null;
 function loadGoogle(){return googleLoading||=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://accounts.google.com/gsi/client';s.async=true;s.onload=()=>resolve(window.google);s.onerror=()=>{googleLoading=null;reject(new Error('Google sign-in could not load. Check your connection.'));};document.head.append(s);});}
 async function showGoogleButton(){
-  const el=$('#google-signin');if(!el||!authInfo?.enabled||el.dataset.ready)return;el.dataset.ready='1';
+  const el=$('#google-signin');if(!el||!authInfo?.clientId||el.dataset.ready)return;el.dataset.ready='1';
   try{const google=await loadGoogle();google.accounts.id.initialize({client_id:authInfo.clientId,callback:onGoogleCredential,auto_select:false,cancel_on_tap_outside:true});if(document.contains(el))google.accounts.id.renderButton(el,{theme:'outline',size:'large',shape:'pill',text:'signin_with'});}
   catch(err){el.textContent=err.message;}
 }
-async function onGoogleCredential(response){
+const onGoogleCredential=response=>finishSignIn({action:'signIn',idToken:response.credential});
+// Every sign-in method ends here: the server's session becomes this device's account.
+async function finishSignIn(request){
   let r;setBusy(true);
-  try{await connectClient();r=await client.call({action:'signIn',idToken:response.credential});account={session:r.session,name:r.account.name,email:r.account.email};linked={};saveAccount();}
-  catch(err){toast(err.message,true);return;}finally{setBusy(false);render();}
+  try{await connectClient();r=await client.call(request);account={session:r.session,name:r.account.name,email:r.account.email};linked={};emailPending='';accountMeta=null;saveAccount();}
+  catch(err){toast(err.message,true);return false;}finally{setBusy(false);render();}
   try{await applyAccount(r,true);toast(`Signed in as ${account.name||account.email}.`);}catch(err){toast(err.message,true);}
-  afterAuth();
+  afterAuth();return true;
+}
+// GitHub sends the person back here with a one-time code; the server swaps it for their verified email.
+const githubRedirect=()=>location.origin+location.pathname;
+function githubStart(){
+  const state=[...crypto.getRandomValues(new Uint8Array(16))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  try{sessionStorage.setItem('flatflow-github',JSON.stringify({state,hash:location.hash}));}catch{toast('Your browser blocks sign-in storage. Try another browser.',true);return;}
+  location.href='https://github.com/login/oauth/authorize?'+new URLSearchParams({client_id:authInfo.github,redirect_uri:githubRedirect(),scope:'read:user user:email',state});
+}
+async function githubReturn(){
+  const q=new URLSearchParams(location.search),code=q.get('code');if(!code)return false;
+  let saved={};try{saved=JSON.parse(sessionStorage.getItem('flatflow-github')||'{}');sessionStorage.removeItem('flatflow-github');}catch{}
+  history.replaceState(null,'',location.pathname+(saved.hash||location.hash));
+  if(!saved.state||saved.state!==q.get('state')){toast('GitHub sign-in didn’t complete. Try again.',true);return false;}
+  await finishSignIn({action:'githubSignIn',code,redirectUri:githubRedirect()});return true;
+}
+async function emailStart(email){
+  setBusy(true);try{await connectClient();await client.call({action:'emailCode',email});emailPending=email;toast('Code sent. Check your email.');}catch(err){toast(err.message,true);}finally{setBusy(false);render();}
+}
+// The sign-in choices, used on the welcome screen and in Settings.
+function signInOptions(){
+  if(emailPending)return `<form id="email-form" class="email-form"><p class="email-sent">We emailed a 6-digit code to <b>${esc(emailPending)}</b>. It works for 10 minutes.</p><label class="field">Code<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required placeholder="123456" autofocus></label><button class="btn" type="submit">Sign in</button><button class="text-btn" type="button" data-action="emailAgain">Use another address</button></form>`;
+  const methods=[authInfo.clientId?'<div id="google-signin" class="gate-button"></div>':'',authInfo.github?`<button type="button" class="btn secondary gate-alt" data-action="githubSignIn">${I('github')}Continue with GitHub</button>`:''].filter(Boolean).join('');
+  const email=authInfo.email?`<form id="email-form" class="email-form">${methods?'<p class="or"><span>or</span></p>':''}<label class="field">Email address<input type="email" name="email" required autocomplete="email" placeholder="you@example.com"></label><button class="btn secondary" type="submit">${I('mail')}Email me a code</button></form>`:'';
+  return methods+email||'<p class="activity-empty">No sign-in method is switched on for this Flatflow yet.</p>';
+}
+function wireEmailForm(){
+  $('#email-form')?.addEventListener('submit',async e=>{e.preventDefault();if(busy)return;const f=new FormData(e.target);
+    if(emailPending)await finishSignIn({action:'emailVerify',email:emailPending,code:String(f.get('code')||'')});else await emailStart(String(f.get('email')||'').trim());});
 }
 // Merges the account's homes into this device, and this device's shared homes into the account.
 async function applyAccount(r,upload=false){
@@ -406,6 +436,7 @@ async function applyAccount(r,upload=false){
   if(upload)for(const e of local.filter(e=>!server.has(e.key))){try{await client.call({action:'linkHome',session:account.session,key:e.key,person:e.myId||''});linked[e.key]=e.myId||'';}catch{}}
   if(mode==='welcome'&&r.homes.length&&!new URLSearchParams(location.hash.slice(1)).has('home'))switchHome('shared:'+r.homes[0].key);else render();
 }
+async function loadAccountMeta(){try{await connectClient();accountMeta=await client.call({action:'accountInfo'});if(view==='settings')render();}catch{accountMeta={};}}
 async function syncAccount(){if(!account)return;try{await connectClient();await applyAccount(await client.call({action:'myHomes',session:account.session}),true);}catch(err){accountExpired(err);}}
 function linkCurrent(){
   if(!account||!authInfo?.enabled||mode!=='shared'||!validKey(key)||linked[key]===myId)return;
@@ -450,20 +481,21 @@ async function claimPerson(id,tag){
   if(ok){myId=chosen;persist();if($('#modal').open)$('#modal').close();render();}
 }
 async function signOut(){
-  if(!account)return;const session=account.session;account=null;linked={};saveAccount();
+  if(!account)return;const session=account.session;account=null;linked={};accountMeta=null;saveAccount();
   try{window.google?.accounts.id.disableAutoSelect();await connectClient();await client.call({action:'signOut',session});}catch{}
   client?.close();client=null;render();toast('Signed out. Sign in again to open your homes.');
 }
 function accountPanel(){
   if(!authInfo)return `<section class="panel"><h2>Your account</h2><p>Checking whether sign-in is available…</p></section>`;
   if(!authInfo.enabled)return `<section class="panel"><h2>Your account</h2><p>Personal sign-in isn’t switched on for this Flatflow yet. Until then, homes are opened with invitation links and remembered on each device.</p></section>`;
-  if(account)return `<section class="panel"><h2>Your account</h2><p>Signed in as <b>${esc(account.name||account.email)}</b>${account.name&&account.email?` · ${esc(account.email)}`:''}. Your homes and your name in each follow you to any device you sign in on.</p><div class="buttons"><button class="btn secondary small" data-action="homes">${I('home')}Your homes</button><button class="text-btn" data-action="signOut">Sign out</button></div></section>`;
-  return `<section class="panel"><h2>Your account</h2><p>Sign in so all your homes, and who you are in each, appear on every phone and computer you use. Flatmates can still join with an invitation link without signing in.</p><div id="google-signin"></div></section>`;
+  if(account){const names={google:'Google',github:'GitHub',email:'Email code'},ways=accountMeta?.providers?.map(p=>names[p]||p).join(', ');
+    return `<section class="panel"><h2>Your account</h2><p>Signed in as <b>${esc(account.name||account.email)}</b>${account.name&&account.email?` · ${esc(account.email)}`:''}.${ways?` You can sign in with ${esc(ways)}; any method with this email opens the same account.`:''}${accountMeta?.sessions>1?` Signed in on ${accountMeta.sessions} devices.`:''}</p><div class="buttons"><button class="btn secondary small" data-action="homes">${I('home')}Your homes</button><button class="text-btn" data-action="signOut">Sign out</button><button class="text-btn" data-action="signOutAll">Sign out everywhere</button></div><button class="text-btn danger" data-action="deleteAccount">Delete my account</button></section>`;}
+  return `<section class="panel"><h2>Your account</h2><p>Sign in so all your homes, and who you are in each, appear on every phone and computer you use.</p>${signInOptions()}</section>`;
 }
 function signInGate(){
   const invitedKey=new URLSearchParams(location.hash.slice(1)).get('home'),invited=!!invitedKey&&invitedKey!==key;
-  $('#app').innerHTML=`<main class="main gate"><div class="brand">${I('home')}flatflow<span>.</span></div><section class="panel gate-card">${heroArt}<p class="eyebrow">${invited?'You’re invited':'Welcome home'}</p><h1>Sign in to Flatflow</h1><p class="subhead">${invited?'Your flatmates invited you to their home. Sign in with Google and you’ll join it straight after.':'Your homes, chores and shared costs stay private to the people in them. Sign in with Google to continue.'}</p>${authInfo?.error?`<p class="notice">Flatflow can’t reach its server. Check your connection and try again.</p><button class="btn" data-action="retryAuth">Try again</button>`:authInfo?'<div id="google-signin" class="gate-button"></div>':'<p class="activity-empty">Getting things ready…</p>'}<p class="gate-note">Flatflow only sees your name and email address. It never sees your Google password.</p></section></main>`;
-  showGoogleButton();
+  $('#app').innerHTML=`<main class="main gate"><div class="brand">${I('home')}flatflow<span>.</span></div><section class="panel gate-card">${heroArt}<p class="eyebrow">${invited?'You’re invited':'Welcome home'}</p><h1>Sign in to Flatflow</h1><p class="subhead">${invited?'Your flatmates invited you to their home. Sign in and you’ll join it straight after.':'Your homes, chores and shared costs stay private to the people in them. Sign in to continue.'}</p>${authInfo?.error?`<p class="notice">Flatflow can’t reach its server. Check your connection and try again.</p><button class="btn" data-action="retryAuth">Try again</button>`:authInfo?signInOptions():'<p class="activity-empty">Getting things ready…</p>'}<p class="gate-note">Flatflow only sees your name and email address, never a password.</p></section></main>`;
+  showGoogleButton();wireEmailForm();
 }
 function render(){
   if(gated()){signInGate();return;}
@@ -474,7 +506,7 @@ function render(){
   const who=home.people.find(p=>p.id===myId),page={dashboard,tasks:chores,people:peoplePage,schedule:schedulePage,expenses:expensesPage,settings,activity:()=>title('Every small effort matters','Your household’s little wins.','Completed chores, passed turns, and changes to your routine.')+`<section class="panel">${activityList(200)}</section>`}[view]||dashboard;
   const statusClass=mode!=='shared'||syncState!=='Synced'?'warn':'';
   $('#app').innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand">${I('home')}flatflow<span>.</span></div><button class="home-pill" data-action="homes" aria-label="Switch home. Current home: ${esc(home.name)}"><span class="home-icon">⌂</span><div><b>${esc(home.name)}</b><small>${home.people.length} flatmates · ${otherHomes()?`${otherHomes()+1} homes`:'one home'}</small></div><span class="home-switch" aria-hidden="true">⇅</span></button><nav class="nav" aria-label="Main navigation">${visibleNav().map(([v,i,n])=>`<button data-view="${v}" class="${view===v?'active':''}">${I(i)}${n}${v==='tasks'?`<span class="count">${activeTasks().length}</span>`:''}</button>`).join('')}</nav><div class="sidebar-bottom"><div class="install-card">${I('leaf')}<p><strong>A happier home, in your pocket.</strong></p><p>Your little routine, wherever you are.</p><button data-action="install">Install the app ↗</button></div><p class="small-brand">Made for the place you call home.</p></div></aside><main class="main" id="main" tabindex="-1"><header class="topbar"><div class="breadcrumb">Your household <b>/ ${navItems.find(i=>i[0]===view)?.[2]||'Activity'}</b></div><button class="mobile-home-name" data-action="homes" aria-label="Switch home">${I('home')}<span>${esc(home.name)}</span> ⇅</button><div class="top-actions"><span class="today-label">${new Date().toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})}</span><span class="sync-tag ${statusClass}" title="${esc(syncState)}"><span class="sync-dot"></span>${mode==='shared'?syncState==='Synced'?'Shared · synced':esc(syncState):mode==='demo'?'Demo home':'Saved on this device'}</span><button data-action="theme" data-id="${isDark()?'light':'dark'}" aria-label="Switch to ${isDark()?'light':'dark'} mode" title="Switch to ${isDark()?'light':'dark'} mode">${I(isDark()?'sun':'moon')}</button><button data-action="chooseMe" aria-label="${who?'You are '+esc(who.name)+'. Change your name':'Choose your name'}" title="Choose your name">${avatar(who)}</button></div></header>${mode==='demo'?`<div class="notice" style="margin-top:22px">You’re exploring a sample home. Make a fresh start with your own flatmates.<button class="text-btn" data-action="newHome">Create your home ${I('arrow')}</button></div>`:''}${connectionNotice()}${view!=='settings'?whoBanner():''}${!storageOK?'<div class="notice">Keep your invitation link. This browser cannot reliably remember your home.</div>':''}${page()}<footer class="app-footer"><span>flatflow.</span><span>${mode==='shared'?'Shared online':'Your data is saved on this device'}</span></footer></main><nav class="mobile-nav" aria-label="Mobile navigation">${visibleNav().map(([v,i,n])=>`<button data-view="${v}" class="${view===v?'active':''}">${I(i)}${n==='Overview'?'Home':n==='All chores'?'Chores':n}</button>`).join('')}</nav><button class="fab" data-action="${({expenses:'addExpense',tasks:'addTask',schedule:'addTask',people:'addPerson'})[view]||'quickAdd'}" aria-label="Add">${I('plus')}</button></div>`;
-  setBusy(busy);showGoogleButton();
+  setBusy(busy);showGoogleButton();wireEmailForm();if(view==='settings'&&account&&!accountMeta)loadAccountMeta();
   $('#my-person')?.addEventListener('change',async e=>{const next=e.target.value;try{if(pushHomes()[home.id])await disablePush();myId=next;persist();render();}catch(err){toast(err.message,true);render();}});
   $('#shopping-form')?.addEventListener('submit',async e=>{e.preventDefault();const item=new FormData(e.target).get('item').trim();if(!item)return;if(await mutate(h=>{h.shopping=h.shopping||[];if(h.shopping.length>=60)throw new Error('The shopping list holds up to 60 items. Clear bought items first.');h.shopping.push({id:uid(),item,addedBy:myId||'',done:false});},'Added to the shopping list'))$('#shopping-form input')?.focus();});
   document.querySelectorAll('[data-shopping]').forEach(el=>el.addEventListener('change',()=>mutate(h=>{const i=(h.shopping||[]).find(i=>i.id===el.dataset.shopping);if(i)i.done=el.checked;},el.checked?'Marked as bought':'Back on the list')));
@@ -584,7 +616,9 @@ async function handleInvitation(confirmed=false){
  if(confirmed)return join();
  dialog('Your flatmates saved you a place.','Join the shared household to see the same chores and updates.', `<p class="info-box">${account?'You’ll be linked to your name after joining.':'Choose your name after joining.'} Keep this invitation to reopen your home in another browser or installed app.${mode!=='welcome'?` ${esc(home.name)} stays in your homes list, so you can switch back any time.`:''}</p>`, 'Join this home',join);
 }
-const actions={retryAuth:()=>{authInfo=null;render();loadAuthConfig();},theme:setTheme,inviteCode,copyCode:async code=>{try{await navigator.clipboard.writeText(code);toast('Code copied.');}catch{toast('Code: '+code);}},joinLink,signOut,homes:homesDialog,switchHome,forgetHome:forgetHomeDialog,
+const actions={retryAuth:()=>{authInfo=null;render();loadAuthConfig();},githubSignIn:githubStart,emailAgain:()=>{emailPending='';render();},
+  signOutAll:()=>dialog('Sign out everywhere?','Every phone and computer signed in to your account, including this one, will need to sign in again.','','Sign out everywhere',async()=>{const session=account.session;account=null;linked={};accountMeta=null;saveAccount();try{await connectClient();await client.call({action:'signOutAll',session});}catch{}client?.close();client=null;$('#modal').close();render();toast('Signed out everywhere.');}),
+  deleteAccount:()=>dialog('Delete your account?','Your sign-ins and the list of your homes are deleted. The homes themselves stay with your flatmates, including expenses you are part of; your name in them stays so balances still add up. This cannot be undone.',`<label class="field">Type DELETE to confirm<input name="confirm" autocomplete="off" required></label>`,'Delete my account',async f=>{if(String(f.get('confirm')).trim()!=='DELETE')throw new Error('Type DELETE to confirm.');const session=account.session;try{await connectClient();await client.call({action:'deleteAccount',session});}catch(err){throw err;}account=null;linked={};accountMeta=null;saveAccount();client?.close();client=null;$('#modal').close();render();toast('Your account is deleted.');}),theme:setTheme,inviteCode,copyCode:async code=>{try{await navigator.clipboard.writeText(code);toast('Code copied.');}catch{toast('Code: '+code);}},joinLink,signOut,homes:homesDialog,switchHome,forgetHome:forgetHomeDialog,
 
   chooseMe:()=>{if(!home.people.length){personForm();return;}dialog('Which one is you?','This is saved on this device only. It sets your chores, your balance and your reminders.',`<div class="who-picks">${home.people.map(p=>`<button type="button" class="chip ${p.id===myId?'active':''}" data-action="setMe" data-id="${esc(p.id)}">${esc(p.name)}</button>`).join('')}</div>`);},
   setMe:async id=>{try{if(myId&&myId!==id&&pushHomes()[home.id])await disablePush();myId=id;persist();$('#modal').open&&$('#modal').close();render();toast(`Hi ${home.people.find(p=>p.id===id)?.name||''}. This device now knows it’s you.`);}catch(err){toast(err.message,true);}},
