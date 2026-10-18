@@ -26,7 +26,7 @@ export default {
     if (request.method !== 'POST') return json({error:'Unsupported request.'}, 405, origin);
     try {
       const backend = createBackend(await withSettings(env), {waitUntil:p => ctx.waitUntil(p)});
-      return json(await backend.rpc(await readBody(request), {ip:request.headers.get('CF-Connecting-IP') || ''}), 200, origin);
+      return json(await backend.rpc(await readBody(request), {ip:request.headers.get('CF-Connecting-IP') || '', origin}), 200, origin);
     } catch (err) {
       if (!err?.expose) console.log('Request failed: ' + err?.stack);
       return json({error:publicMessage(err)}, 400, origin);

@@ -5,7 +5,10 @@ import {validateHome, rollOver, away, assignee} from '../public/core.js';
 import {vapidSigner, sendPush, pushEndpoint} from './webpush.js';
 
 export const MAX_HOMES = 200, MAX_DEVICES = 300, SESSION_DAYS = 90, INVITE_DAYS = 7, MAX_INVITES = 1000;
-export const ACCOUNT_ACTIONS = ['authConfig','signIn','emailCode','emailVerify','githubSignIn','myHomes','linkHome','unlinkHome','signOut','signOutAll','deleteAccount','accountInfo'];
+export const ACCOUNT_ACTIONS = ['authConfig','signIn','emailCode','emailVerify','githubSignIn','passkeyChallenge','passkeySignIn','myHomes','linkHome','unlinkHome','signOut','signOutAll','deleteAccount','accountInfo','passkeyOptions','passkeyRegister','passkeyRemove'];
+const MAX_PASSKEYS = 10;
+const b64url = {decode:s => Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(String(s).length / 4) * 4, '=')), c => c.charCodeAt(0)), encode:b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')};
+const validB64url = (s, max = 2048) => typeof s === 'string' && s.length > 0 && s.length <= max && /^[\w-]+$/.test(s);
 // Sign-in attempts per address per minute, before the server stops answering them.
 const AUTH_LIMIT = 20, CODE_MINUTES = 10, CODE_TRIES = 5;
 const PUSH_ACTIONS = ['pushConfig','subscribePush','unsubscribePush','testPush'];
@@ -56,9 +59,9 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     return await saveHome(entry, previous, 'rollover-' + crypto.randomUUID()) ? entry : readHome(entry.hash);
   };
 
-  async function rpc(request, {ip = ''} = {}) {
-    if (request && ['signIn','emailCode','emailVerify','githubSignIn','redeemInvite'].includes(request.action)) await limit(request.action + ':' + ip, AUTH_LIMIT, 60000);
-    if (request && ACCOUNT_ACTIONS.includes(request.action)) return accountOperation(request);
+  async function rpc(request, {ip = '', origin = ''} = {}) {
+    if (request && ['signIn','emailCode','emailVerify','githubSignIn','passkeySignIn','redeemInvite'].includes(request.action)) await limit(request.action + ':' + ip, AUTH_LIMIT, 60000);
+    if (request && ACCOUNT_ACTIONS.includes(request.action)) return accountOperation(request, origin);
     const member = await requireMember(request);
     if (request && request.action === 'redeemInvite') return redeemInvite(request);
     if (!request || !validKey(request.key)) fail('Invalid household invitation.');
@@ -154,8 +157,10 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
   // backend then issues its own long-lived session so phones stay signed in.
   // One person is one account whichever way they sign in: methods are tied
   // together by the verified email address.
-  async function accountOperation(request) {
-    if (request.action === 'authConfig') return {enabled:authEnabled(), clientId:env.GOOGLE_CLIENT_ID || '', email:emailEnabled(), github:githubEnabled() ? env.GITHUB_CLIENT_ID : ''};
+  async function accountOperation(request, origin) {
+    if (request.action === 'authConfig') return {enabled:authEnabled(), clientId:env.GOOGLE_CLIENT_ID || '', email:emailEnabled(), github:githubEnabled() ? env.GITHUB_CLIENT_ID : '', passkeys:authEnabled()};
+    if (request.action === 'passkeyChallenge') return passkeyChallenge(origin);
+    if (request.action === 'passkeySignIn') return passkeySignIn(request, origin);
     if (request.action === 'signIn') return signIn(request.idToken);
     if (request.action === 'emailCode') return emailCode(request);
     if (request.action === 'emailVerify') return emailVerify(request);
@@ -173,14 +178,19 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
       // Homes stay with the flatmates; only this person's account, sign-ins and sessions go.
       await db.prepare('DELETE FROM sessions WHERE sub = ? OR sub = ?').bind('a:' + accountId, session.sub).run();
       await db.prepare('DELETE FROM logins WHERE account = ?').bind(accountId).run();
+      await db.prepare('DELETE FROM passkeys WHERE account = ?').bind(accountId).run();
       await db.prepare('DELETE FROM accounts WHERE id = ?').bind(accountId).run();
       return {ok:true};
     }
     if (request.action === 'accountInfo') {
       const {results} = await db.prepare('SELECT provider FROM logins WHERE account = ?').bind(accountId).all();
       const sessions = (await db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE (sub = ? OR sub = ?) AND exp > ?').bind('a:' + accountId, session.sub, Date.now()).first()).n;
-      return {ok:true, account:{name:account.name, email:account.email}, providers:[...new Set(results.map(r=>r.provider))], sessions};
+      const passkeys = (await db.prepare('SELECT id, name, created FROM passkeys WHERE account = ? ORDER BY created').bind(accountId).all()).results;
+      return {ok:true, account:{name:account.name, email:account.email}, providers:[...new Set(results.map(r=>r.provider))], sessions, passkeys};
     }
+    if (request.action === 'passkeyOptions') return passkeyOptions(accountId, account, origin);
+    if (request.action === 'passkeyRegister') return passkeyRegister(request, accountId, origin);
+    if (request.action === 'passkeyRemove') {if (!validB64url(request.id)) fail('Unknown passkey.');await db.prepare('DELETE FROM passkeys WHERE id = ? AND account = ?').bind(request.id, accountId).run();return {ok:true};}
     if (request.action === 'linkHome') {
       if (!validKey(String(request.key || ''))) fail('Invalid household invitation.');
       const found = await readHome(await hash(request.key));
@@ -281,6 +291,82 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     if (!verified) fail('Add a verified email address to your GitHub account, then try again.');
     const {accountId, account} = await resolveAccount('github', String(user.id), normalizeEmail(verified.email), String(user.name || user.login || '').slice(0,100));
     return issueSession(accountId, account);
+  }
+  // Passkeys (WebAuthn): the phone or computer proves it holds a key the account
+  // registered earlier, with a fingerprint, face or PIN checked on the device.
+  // No third party is involved. The relying party is the app's own host.
+  const rpIdFor = origin => {try {return new URL(origin).hostname;} catch {return '';}};
+  const sha256 = async bytes => new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  const sameBytes = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  async function newChallenge(purpose, accountId = '') {
+    const challenge = b64url.encode(crypto.getRandomValues(new Uint8Array(32)));
+    await db.prepare('DELETE FROM codes WHERE exp < ?').bind(Date.now()).run();
+    await db.prepare('INSERT INTO codes (id, code, exp, tries) VALUES (?, ?, ?, 0)').bind(await hash('challenge:' + purpose + ':' + challenge), accountId || '-', Date.now() + 5 * 60000).run();
+    return challenge;
+  }
+  // Each challenge is accepted once, within five minutes, for the purpose it was issued for.
+  async function takeChallenge(purpose, challenge) {
+    if (!validB64url(challenge, 64)) fail('Passkey sign-in failed. Try again.');
+    const id = await hash('challenge:' + purpose + ':' + challenge), row = await db.prepare('SELECT code, exp FROM codes WHERE id = ?').bind(id).first();
+    await db.prepare('DELETE FROM codes WHERE id = ?').bind(id).run();
+    if (!row || row.exp < Date.now()) fail('That passkey request expired. Try again.');
+    return row.code === '-' ? '' : row.code;
+  }
+  // Checks what the browser signed: the right ceremony, our challenge, our origin and our host.
+  async function clientChecks(request, type, origin) {
+    if (!validB64url(request.clientDataJSON, 4096) || !validB64url(request.authenticatorData, 4096) || !validB64url(request.id, 1024)) fail('Passkey sign-in failed. Try again.');
+    let data;try {data = JSON.parse(new TextDecoder().decode(b64url.decode(request.clientDataJSON)));} catch {fail('Passkey sign-in failed. Try again.');}
+    if (data.type !== type || data.origin !== origin || !validB64url(String(data.challenge || ''), 64)) fail('Passkey sign-in failed. Try again.');
+    const authData = b64url.decode(request.authenticatorData);
+    if (authData.length < 37 || !sameBytes(authData.slice(0, 32), await sha256(new TextEncoder().encode(rpIdFor(origin)))) || !(authData[32] & 1)) fail('Passkey sign-in failed. Try again.');
+    const counter = new DataView(authData.buffer, authData.byteOffset + 33, 4).getUint32(0);
+    return {challenge:String(data.challenge), authData, counter};
+  }
+  async function passkeyOptions(accountId, account, origin) {
+    if (!rpIdFor(origin)) fail('Passkeys need the app to be opened from its own address.');
+    const existing = (await db.prepare('SELECT id FROM passkeys WHERE account = ?').bind(accountId).all()).results;
+    if (existing.length >= MAX_PASSKEYS) fail('An account can have up to ' + MAX_PASSKEYS + ' passkeys. Remove one first.');
+    return {ok:true, challenge:await newChallenge('register', accountId), rpId:rpIdFor(origin), userId:b64url.encode(new TextEncoder().encode(accountId.slice(0, 32))), name:account.email, displayName:account.name || account.email, exclude:existing.map(r=>r.id)};
+  }
+  async function passkeyRegister(request, accountId, origin) {
+    const {challenge, authData} = await clientChecks(request, 'webauthn.create', origin);
+    if (await takeChallenge('register', challenge) !== accountId) fail('That passkey request expired. Try again.');
+    // The credential id in the signed authenticator data must be the one the browser reports.
+    if (authData.length < 55 || !(authData[32] & 0x40)) fail('Passkey sign-in failed. Try again.');
+    const idLength = (authData[53] << 8) | authData[54];
+    if (!sameBytes(authData.slice(55, 55 + idLength), b64url.decode(request.id))) fail('Passkey sign-in failed. Try again.');
+    const alg = Number(request.publicKeyAlgorithm);
+    if (![-7, -257].includes(alg) || !validB64url(request.publicKey, 4096)) fail('This device’s passkey type isn’t supported.');
+    try {await importPasskey(request.publicKey, alg);} catch {fail('This device’s passkey type isn’t supported.');}
+    const name = String(request.name || 'Passkey').slice(0, 60);
+    await db.prepare('INSERT OR REPLACE INTO passkeys (id, account, public_key, alg, counter, name, created) VALUES (?, ?, ?, ?, 0, ?, ?)').bind(request.id, accountId, request.publicKey, alg, name, new Date().toISOString()).run();
+    return {ok:true};
+  }
+  const importPasskey = (spki, alg) => crypto.subtle.importKey('spki', b64url.decode(spki), alg === -7 ? {name:'ECDSA', namedCurve:'P-256'} : {name:'RSASSA-PKCS1-v1_5', hash:'SHA-256'}, false, ['verify']);
+  async function passkeyChallenge(origin) {
+    if (!authEnabled()) fail('Sign-in is not set up for this Flatflow yet.');
+    if (!rpIdFor(origin)) fail('Passkeys need the app to be opened from its own address.');
+    return {ok:true, challenge:await newChallenge('signin'), rpId:rpIdFor(origin)};
+  }
+  // WebAuthn ECDSA signatures come DER-encoded; WebCrypto wants raw r||s.
+  const rawSignature = der => {
+    if (der[0] !== 0x30) return der;
+    const int = o => {const len = der[o + 1];let start = o + 2, n = len;while (n > 32 && der[start] === 0) {start++;n--;}const out = new Uint8Array(32);out.set(der.slice(start, start + n), 32 - n);return [out, o + 2 + len];};
+    const [r, next] = int(2), [s] = int(next);return new Uint8Array([...r, ...s]);
+  };
+  async function passkeySignIn(request, origin) {
+    const {challenge, authData, counter} = await clientChecks(request, 'webauthn.get', origin);
+    await takeChallenge('signin', challenge);
+    const row = await db.prepare('SELECT * FROM passkeys WHERE id = ?').bind(request.id).first();
+    if (!row || !validB64url(request.signature, 2048)) fail('That passkey isn’t registered here. Sign in another way, then add it in Settings.');
+    const signed = new Uint8Array([...authData, ...await sha256(b64url.decode(request.clientDataJSON))]);
+    const key = await importPasskey(row.public_key, row.alg), signature = b64url.decode(request.signature);
+    const valid = await crypto.subtle.verify(row.alg === -7 ? {name:'ECDSA', hash:'SHA-256'} : {name:'RSASSA-PKCS1-v1_5'}, key, row.alg === -7 ? rawSignature(signature) : signature, signed);
+    if (!valid || (counter && counter <= row.counter)) fail('Passkey sign-in failed. Try again.');
+    await db.prepare('UPDATE passkeys SET counter = ?, used = ? WHERE id = ?').bind(counter, new Date().toISOString(), row.id).run();
+    const account = await readAccount(row.account);
+    if (!account) {await db.prepare('DELETE FROM passkeys WHERE id = ?').bind(row.id).run();fail('That passkey’s account no longer exists.');}
+    return issueSession(row.account, account);
   }
   const readAccount = async id => {const row = await db.prepare('SELECT data FROM accounts WHERE id = ?').bind(id).first();return row ? JSON.parse(row.data) : null;};
   const saveAccount = (id, account) => db.prepare('INSERT INTO accounts (id, data) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET data = excluded.data').bind(id, JSON.stringify(account)).run();
