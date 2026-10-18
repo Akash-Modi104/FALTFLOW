@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#f4f6f2">
+  <title>Flatflow has moved</title>
+  <style>
+    body{margin:0;min-height:100vh;display:grid;place-items:center;font:17px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:#f7f8f2;color:#1d2a26;padding:24px;box-sizing:border-box}
+    main{max-width:28rem;text-align:center}h1{font-size:1.6rem;margin:0 0 .5rem}p{margin:.5rem 0}
+    a.btn{display:inline-block;margin-top:.75rem;padding:.8rem 1.3rem;border-radius:999px;background:#244d3e;color:#fff;text-decoration:none;font-weight:600}
+    @media (prefers-color-scheme:dark){body{background:#141a18;color:#e7ece8}}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Flatflow has moved</h1>
+    <p id="msg">Taking you to the new address…</p>
+    <p><a id="go" class="btn" href="https://new-address.example/">Open Flatflow</a></p>
+    <p id="install" hidden>This icon is the old copy of Flatflow and won’t get updates. Open the new address in your browser, add Flatflow to your Home Screen again, then remove this icon.</p>
+  </main>
+  <script>
+    (async()=>{
+      const NEW_URL='https://new-address.example/';
+      // Invitation links carry the household key in the fragment, which never reaches a server.
+      // Without one, carry the home that was open on this device so it opens straight away.
+      let hash=location.hash;
+      if(!/[#&]home=/.test(hash)){try{const c=JSON.parse(localStorage.getItem('flatflow-connection-v1')||'null');if(/^[a-f0-9]{64}$/.test(c?.key||''))hash='#'+new URLSearchParams({home:c.key});}catch{}}
+      const target=NEW_URL+location.search+hash;
+      document.getElementById('go').href=target;
+      // Retire the old copy on this device: its service worker, offline cache and push subscription.
+      const retire=async()=>{
+        try{for(const r of await navigator.serviceWorker.getRegistrations()){try{const s=await r.pushManager.getSubscription();if(s)await s.unsubscribe();}catch{}await r.unregister();}}catch{}
+        try{for(const k of await caches.keys())await caches.delete(k);}catch{}
+      };
+      await Promise.race([retire(),new Promise(r=>setTimeout(r,2000))]);
+      const installed=matchMedia('(display-mode: standalone)').matches||navigator.standalone===true;
+      if(installed){document.getElementById('msg').textContent='Flatflow now lives at '+new URL(NEW_URL).host+'.';document.getElementById('install').hidden=false;return;}
+      location.replace(target);
+    })();
+  </script>
+</body>
+</html>
