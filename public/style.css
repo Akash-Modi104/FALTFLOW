@@ -245,12 +245,10 @@ button.home-pill:hover{border-color:var(--line-strong)}
 
 /* ---------- Flatmates ---------- */
 .person-grid{display:grid;grid-template-columns:1fr;gap:12px}
-.person-card{padding:18px}
-.person-card-top{display:flex;justify-content:space-between;align-items:flex-start}
-.person-card h3{margin:12px 0 2px;font-size:16px}
-.person-card p{font-size:13px;color:var(--muted);line-height:1.6;margin:4px 0}
-.person-card .metrics{display:flex;gap:22px;border-top:1px solid var(--line);padding-top:14px;margin-top:14px;font-size:12px;color:var(--muted)}
-.metrics b{display:block;font-family:var(--display);font-size:19px;margin-bottom:2px;color:var(--ink);font-variant-numeric:tabular-nums}
+.person-card{padding:14px 16px;display:flex;align-items:center;gap:14px}
+.person-card-main{min-width:0;flex:1}
+.person-card h3{margin:0 0 2px;font-size:16px}
+.person-card p{font-size:13px;color:var(--muted);line-height:1.5;margin:0}
 .fairness{margin-bottom:20px}
 .fair-line{display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .fair-line:last-child{margin-bottom:0}
@@ -309,7 +307,8 @@ button.home-pill:hover{border-color:var(--line-strong)}
 .settle-line{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;font-size:13.5px;padding:0 0 14px;margin:0 0 14px;border-bottom:1px solid var(--line)}
 .settle-line:last-child{border-bottom:0;margin-bottom:0;padding-bottom:0}
 .settle-line .btn{margin-left:auto}
-.expense-list{display:grid;gap:8px}
+.expense-list{display:grid;grid-template-columns:minmax(0,1fr);gap:8px}
+.expense-list .expense-line{min-width:0}
 .expense-line{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin-bottom:8px;box-shadow:var(--shadow-sm)}
 .expense-list .expense-line{margin-bottom:0}
 .expense-main{min-width:0;flex:1}
@@ -521,7 +520,7 @@ dialog::backdrop{background:var(--backdrop);backdrop-filter:blur(3px)}
   .task-card{padding:16px 18px}
   .schedule-grid{grid-template-columns:repeat(7,minmax(0,1fr))}
   .day-column{min-height:260px}
-  .person-grid{grid-template-columns:repeat(3,1fr)}
+  .person-grid{grid-template-columns:repeat(2,1fr)}
   .month-cell{min-height:96px}
   .search{width:240px}
 }
@@ -562,3 +561,25 @@ dialog::backdrop{background:var(--backdrop);backdrop-filter:blur(3px)}
 .claim-option.new .icon{width:36px;height:36px;padding:8px;border-radius:50%;background:var(--accent-soft);color:var(--accent-text)}
 .you-row{display:flex;align-items:center;gap:10px;margin-top:6px}
 .you-row .text-btn{margin-left:auto}
+/* ---------- Simpler screens ---------- */
+.today{padding:16px 18px}
+.today-line{font-size:15px;margin:0 0 8px}
+.today .money-line{margin-bottom:8px}
+.fold{padding:0}
+.fold>summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:16px 18px;font-family:var(--display);font-weight:700;font-size:16px}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary::after{content:'›';font-size:22px;line-height:1;color:var(--muted);transform:rotate(90deg);transition:transform .15s}
+.fold[open]>summary::after{transform:rotate(-90deg)}
+.fold>summary .badge{margin-left:auto}
+.fold>*:not(summary){margin-left:18px;margin-right:18px}
+.fold>summary+*{margin-top:0}
+.fold>*:last-child{margin-bottom:18px}
+.fold>.panel{border:0;box-shadow:none;padding:0;margin:0 18px 18px}
+.fold>.panel+.panel{padding-top:18px;border-top:1px solid var(--line);border-radius:0}
+.fold>form{margin:0 18px 18px}
+.settings-grid .fold>p{margin-left:18px;margin-right:18px}
+.settings-grid .fold>.buttons{margin:0 18px 14px}
+.page-head .btn{flex:none}
+.page-head+.money-line{font-size:16px;margin:-6px 0 16px}
+@media (max-width:899px){.page-head .btn{display:none}.page-head{margin:18px 0 14px}}
+@media (min-width:900px){.columns>.money-first{order:2}}
