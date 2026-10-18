@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {webcrypto} from 'node:crypto';
 globalThis.crypto ||= webcrypto;
-import {demoHome,validateHome,assignee,complete,rollOver,skip,nextDue,schedule,calendar} from '../public/core.js';
+import {demoHome,validateHome,assignee,complete,rollOver,skip,nextDue,prevDue,undoableDone,undoComplete,schedule,calendar} from '../public/core.js';
 test('completion advances one turn and preserves the anchored monthly date',()=>{
   const h=demoHome(),t=h.tasks[0],p=assignee(t,h.people);
   complete(h,t.id);assert.notEqual(assignee(t,h.people).id,p.id);assert.equal(h.history[0].kind,'done');
@@ -19,3 +19,26 @@ test('unfinished weekly turns rotate automatically at the next period',()=>{cons
 
 import {removePerson} from '../public/core.js';
 test('deleting a flatmate preserves current assignments and blocks sole assignees',()=>{const h=demoHome(),t=h.tasks[0];t.turn=2;const current=t.order[2];removePerson(h,h.people[0].id);assert.equal(t.order[t.turn],current);assert.equal(h.people.length,3);t.order=[current];t.turn=0;assert.throws(()=>removePerson(h,current),/Reassign/);assert.equal(h.people.length,3);});
+
+test('undoing a completion restores the turn and due date and drops the credit',()=>{
+  const h=demoHome(),t=h.tasks[1],due=t.due,turn=t.turn,p=assignee(t,h.people);
+  complete(h,t.id);const done=h.history[0];assert.equal(undoableDone(h,done),true);
+  undoComplete(h,done.id);
+  assert.equal(t.due,due);assert.equal(t.turn,turn);assert.equal(assignee(t,h.people).id,p.id);
+  assert.ok(!h.history.some(e=>e.id===done.id));assert.equal(h.history[0].kind,'undo');assert.equal(h.history[0].task,t.id);assert.match(h.history[0].text,/didn’t complete/);
+  assert.doesNotThrow(()=>validateHome(h));
+});
+test('a completion cannot be undone once the chore has moved on',()=>{
+  const h=demoHome(),t=h.tasks[0];
+  complete(h,t.id);const first=h.history[0];complete(h,t.id);
+  assert.equal(undoableDone(h,first),false);assert.equal(undoableDone(h,h.history[0]),true);
+  assert.throws(()=>undoComplete(h,first.id),/can’t be undone/);
+  skip(h,t.id,'');assert.equal(undoableDone(h,h.history[1]),false);
+  const other=demoHome(),o=other.tasks[0];complete(other,o.id);o.paused=true;assert.equal(undoableDone(other,other.history[0]),false);
+});
+test('prevDue is the inverse of nextDue, including anchored month ends',()=>{
+  for(const t of [{due:'2026-01-31',anchorDay:31,every:1,unit:'month'},{due:'2026-02-28',anchorDay:28,every:3,unit:'month'},{due:'2026-12-30',every:3,unit:'day'},{due:'2026-10-25',every:2,unit:'week'}]){
+    const next={...t,due:nextDue(t)};assert.equal(prevDue(next),t.due,JSON.stringify(t));
+  }
+  assert.equal(prevDue({due:'2026-02-28',anchorDay:31,every:1,unit:'month'}),'2026-01-31');
+});

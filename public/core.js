@@ -47,6 +47,24 @@ export function validateHome(h){
 }
 export function record(h,kind,text,person='',task='',minutes=0){h.history.unshift({id:uid(),kind,text,person,task,minutes,at:new Date().toISOString()});h.history=h.history.slice(0,200);}
 export function complete(h,id){const t=h.tasks.find(t=>t.id===id);if(!t||t.paused)throw new Error('This task is unavailable.');const p=assignee(t,h.people);if(!p)throw new Error('Everyone in this rotation is away. Edit the task to add someone available.');record(h,'done',`${p.name} completed ${t.title}`,p.id,t.id,t.minutes);advance(t,h.people);t.due=nextDue(t);}
+// Undoing a completion puts the chore back on its previous turn and due date. It is
+// offered only while nothing else has happened to that chore since, so the rotation
+// is never skewed; prevDue is the inverse of nextDue.
+export function prevDue(t){
+  if(t.unit!=='month')return addDays(t.due,-t.every*(t.unit==='week'?7:1));
+  const d=date(t.due),day=t.anchorDay||d.getDate();
+  d.setDate(1);d.setMonth(d.getMonth()-t.every);
+  const last=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+  d.setDate(Math.min(day,last));return iso(d);
+}
+export function undoableDone(h,e){return !!e&&e.kind==='done'&&h.tasks.some(t=>t.id===e.task&&!t.paused&&t.order.includes(e.person))&&h.history.find(x=>x.task===e.task)===e;}
+export function undoComplete(h,entryId){
+  const e=h.history.find(x=>x.id===entryId);
+  if(!undoableDone(h,e))throw new Error('This can’t be undone any more: the chore has moved on since.');
+  const t=h.tasks.find(t=>t.id===e.task),p=h.people.find(p=>p.id===e.person);
+  t.due=prevDue(t);t.turn=t.order.indexOf(e.person);h.history=h.history.filter(x=>x!==e);
+  record(h,'undo',`${p?p.name:'Someone'} didn’t complete ${t.title} after all`,e.person,t.id);
+}
 // A turn lasts until the next scheduled occurrence. Unfinished turns expire
 // at that boundary, so daily/weekly/monthly rotations continue automatically.
 export function rollOver(h,today=iso()){
