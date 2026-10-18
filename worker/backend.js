@@ -4,7 +4,7 @@
 import {validateHome, rollOver, away, assignee} from '../public/core.js';
 import {vapidSigner, sendPush, pushEndpoint} from './webpush.js';
 
-export const MAX_HOMES = 200, MAX_DEVICES = 300, SESSION_DAYS = 90, INVITE_DAYS = 7, MAX_INVITES = 1000;
+export const MAX_HOMES = 200, MAX_ACCOUNT_HOMES = 20, MAX_DEVICES = 300, SESSION_DAYS = 90, INVITE_DAYS = 7, MAX_INVITES = 1000;
 export const ACCOUNT_ACTIONS = ['authConfig','signIn','emailCode','emailVerify','githubSignIn','passkeyChallenge','passkeySignIn','myHomes','linkHome','unlinkHome','signOut','signOutAll','deleteAccount','accountInfo','passkeyOptions','passkeyRegister','passkeyRemove'];
 const MAX_PASSKEYS = 10;
 const b64url = {decode:s => Uint8Array.from(atob(String(s).replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(String(s).length / 4) * 4, '=')), c => c.charCodeAt(0)), encode:b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')};
@@ -60,7 +60,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
   };
 
   async function rpc(request, {ip = '', origin = ''} = {}) {
-    if (request && ['signIn','emailCode','emailVerify','githubSignIn','passkeySignIn','redeemInvite'].includes(request.action)) await limit(request.action + ':' + ip, AUTH_LIMIT, 60000);
+    if (request && ['signIn','emailCode','emailVerify','githubSignIn','passkeyChallenge','passkeySignIn','redeemInvite'].includes(request.action)) await limit(request.action + ':' + ip, AUTH_LIMIT, 60000);
     if (request && ACCOUNT_ACTIONS.includes(request.action)) return accountOperation(request, origin);
     const member = await requireMember(request);
     if (request && request.action === 'redeemInvite') return redeemInvite(request);
@@ -71,6 +71,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
       if (existing) return publicResult(existing);
       const count = (await db.prepare('SELECT COUNT(*) AS n FROM homes').first()).n;
       if (count >= MAX_HOMES) fail('Household limit reached. Ask the app owner.');
+      if (member && member.account.homes.length >= MAX_ACCOUNT_HOMES) fail('An account can belong to up to 20 homes. Leave one first.');
       validateHome(request.home);
       request.home.people.forEach(p=>{delete p.email;delete p.emailVerified;});
       const entry = {hash:h, revision:1, home:request.home};
@@ -83,6 +84,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     await linkMember(member, request.key);
     entry = await rolledOver(entry);
     if (request.action === 'createInvite') return createInvite(request, entry);
+    if (request.action === 'deleteHome') return deleteHome(member, request.key, entry);
     if (request.action === 'read') return Number(request.revision) === entry.revision ? {ok:true, unchanged:true, revision:entry.revision} : publicResult(entry);
     if (request.action === 'write') {
       if (typeof request.op !== 'string' || !/^[\w-]{20,80}$/.test(request.op)) fail('Invalid operation.');
@@ -99,6 +101,19 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     }
     if (PUSH_ACTIONS.includes(request.action)) return pushOperation(request, entry);
     fail('Unsupported operation.');
+  }
+
+  // Deleting a home removes everything the backend holds about it: the household
+  // itself, its open invite codes and every phone subscribed to its reminders.
+  // Any flatmate may do it, since anyone holding the key can already empty the home.
+  async function deleteHome(member, key, entry) {
+    await db.batch([
+      db.prepare('DELETE FROM devices WHERE home = ?').bind(entry.hash),
+      db.prepare('DELETE FROM invites WHERE home = ?').bind(entry.hash),
+      db.prepare('DELETE FROM homes WHERE hash = ?').bind(entry.hash)
+    ]);
+    if (member) {member.account.homes = member.account.homes.filter(x=>x.key!==key);await saveAccount(member.id, member.account);}
+    return {ok:true, deleted:true};
   }
 
   // Once any sign-in method is configured, every home action needs a signed-in
@@ -129,7 +144,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
   }
   async function linkMember(member, key) {
     if (!member || member.account.homes.some(x=>x.key===key)) return;
-    if (member.account.homes.length >= 20) fail('An account can belong to up to 20 homes. Leave one first.');
+    if (member.account.homes.length >= MAX_ACCOUNT_HOMES) fail('An account can belong to up to 20 homes. Leave one first.');
     member.account.homes.push({key, person:''});
     await saveAccount(member.id, member.account);
   }
@@ -175,7 +190,9 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     if (!account) fail('Your sign-in has expired. Sign in again.');
     if (request.action === 'signOutAll') {await db.prepare('DELETE FROM sessions WHERE sub = ? OR sub = ?').bind('a:' + accountId, session.sub).run();return {ok:true};}
     if (request.action === 'deleteAccount') {
-      // Homes stay with the flatmates; only this person's account, sign-ins and sessions go.
+      // Homes stay with the flatmates; only this person's account, sign-ins and sessions go,
+      // along with their reminder devices and the sign-in tag that tied them to a flatmate.
+      await forgetPerson(account);
       await db.prepare('DELETE FROM sessions WHERE sub = ? OR sub = ?').bind('a:' + accountId, session.sub).run();
       await db.prepare('DELETE FROM logins WHERE account = ?').bind(accountId).run();
       await db.prepare('DELETE FROM passkeys WHERE account = ?').bind(accountId).run();
@@ -199,7 +216,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
       if (person && !found.home.people.some(p=>p.id===person)) fail('Choose your name first.');
       const existing = account.homes.find(x=>x.key===request.key);
       if (existing) {if (person || request.person === '') existing.person = person;}
-      else {if (account.homes.length >= 20) fail('An account can belong to up to 20 homes.');account.homes.push({key:request.key, person});}
+      else {if (account.homes.length >= MAX_ACCOUNT_HOMES) fail('An account can belong to up to 20 homes.');account.homes.push({key:request.key, person});}
       await saveAccount(accountId, account);return accountResult(account);
     }
     if (request.action === 'unlinkHome') {account.homes = account.homes.filter(x=>x.key!==request.key);await saveAccount(accountId, account);return accountResult(account);}
@@ -207,6 +224,22 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
     fail('Unsupported operation.');
   }
 
+  // The app marks a flatmate as "this signed-in person" with a short tag made from
+  // the email (see claimTag in app.js). Removing it, and the devices registered
+  // for that flatmate, leaves nothing in any home that points back at the account.
+  async function forgetPerson(account) {
+    const tag = account.email ? (await hash('flatflow-claim|' + String(account.email).trim().toLowerCase())).slice(0, 16) : '';
+    for (const x of account.homes || []) {
+      const entry = await readHome(await hash(x.key));
+      if (!entry) continue;
+      if (x.person) await db.prepare('DELETE FROM devices WHERE home = ? AND person = ?').bind(entry.hash, x.person).run();
+      const mine = entry.home.people.filter(p=>p.claim && p.claim === tag);
+      if (!mine.length) continue;
+      mine.forEach(p=>{delete p.claim;});
+      const previous = entry.revision;entry.revision++;
+      await saveHome(entry, previous, 'unclaim-' + crypto.randomUUID()).catch(()=>{});
+    }
+  }
   async function signIn(idToken) {
     const clientId = env.GOOGLE_CLIENT_ID;
     if (!clientId) fail('Sign-in is not set up for this Flatflow yet.');
@@ -441,6 +474,7 @@ export function createBackend(env, {fetcher = fetch, waitUntil = p => p} = {}) {
   // five minutes in that window and handles a small batch each time, which keeps
   // every run inside the free plan's per-invocation limits.
   async function daily(now = new Date(), batch = 25) {
+    await db.batch([db.prepare('DELETE FROM invites WHERE exp < ?').bind(now.getTime()), db.prepare('DELETE FROM sessions WHERE exp < ?').bind(now.getTime()), db.prepare('DELETE FROM codes WHERE exp < ?').bind(now.getTime()), db.prepare('DELETE FROM limits WHERE reset < ?').bind(now.getTime())]);
     if (berlinHour(now) !== 9 || !pushConfig().enabled) return 0;
     const today = berlinDate(now);
     const {results} = await db.prepare('SELECT * FROM devices WHERE sent <> ? ORDER BY home LIMIT ?').bind(today, batch).all();
